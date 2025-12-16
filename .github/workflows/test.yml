@@ -1,0 +1,120 @@
+# SafeTimer CI/CD Pipeline
+# Runs automated tests and coverage analysis on every push and pull request
+
+name: SafeTimer Tests
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  test:
+    name: Run Unit Tests
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y gcc make lcov
+
+    - name: Verify build environment
+      run: |
+        gcc --version
+        make --version
+
+    - name: Run unit tests
+      run: |
+        cd test
+        make test
+
+    - name: Generate coverage report
+      run: |
+        cd test
+        make coverage
+
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v4
+      with:
+        files: ./test/coverage/*.gcov
+        flags: unittests
+        name: codecov-umbrella
+        fail_ci_if_error: false
+        verbose: true
+      env:
+        CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+  build-examples:
+    name: Build Hardware Examples
+    runs-on: ubuntu-latest
+    needs: test
+
+    strategy:
+      matrix:
+        platform: [sc8f072, stm8, stc8]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install SDCC
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y sdcc
+
+    - name: Verify SDCC installation
+      run: sdcc --version
+
+    - name: Build ${{ matrix.platform }} example
+      run: |
+        cd examples/${{ matrix.platform }}
+        make clean
+        make
+
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ matrix.platform }}-firmware
+        path: examples/${{ matrix.platform }}/build/*.ihx
+        retention-days: 7
+
+  static-analysis:
+    name: Static Code Analysis
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install cppcheck
+      run: sudo apt-get install -y cppcheck
+
+    - name: Run cppcheck
+      run: |
+        cd test
+        make static-analysis || true
+
+    - name: Upload analysis results
+      uses: actions/upload-artifact@v4
+      with:
+        name: static-analysis
+        path: test/static-analysis.log
+        retention-days: 7
+
+  summary:
+    name: Test Summary
+    runs-on: ubuntu-latest
+    needs: [test, build-examples]
+    if: always()
+
+    steps:
+    - name: Check test results
+      run: |
+        echo "✅ All tests completed"
+        echo "See individual job results for details"

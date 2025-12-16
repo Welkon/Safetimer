@@ -92,11 +92,11 @@ bsp_tick_t bsp_get_ticks(void) {
 }
 
 void bsp_enter_critical(void) {
-    EA = 0;  /* Disable interrupts (8051) */
+    EA = 0;  /* Disable interrupts */
 }
 
 void bsp_exit_critical(void) {
-    EA = 1;  /* Enable interrupts (8051) */
+    EA = 1;  /* Enable interrupts */
 }
 ```
 
@@ -200,11 +200,10 @@ SafeTimer 要求极低，几乎可在任何 8 位单片机上运行：
 
 ## 📊 资源占用
 
-| MCU | RAM（默认配置） | Flash | 处理耗时 |
-|-----|-----------------|-------|----------|
-| SC8F072 | 58 字节（4 定时器） | ~1.0 KB | ~5µs @ 8MHz |
-| STM8 | 58 字节（4 定时器） | ~1.0 KB | ~5µs @ 16MHz |
-| STC8 | 58 字节（4 定时器） | ~1.2 KB | ~7µs @ 11MHz |
+**默认配置（4 个定时器）：**
+- **RAM：** 58 字节（4 定时器）到 114 字节（8 定时器）
+- **Flash：** ~0.8 KB（精简版）到 ~1.2 KB（完整版）
+- **处理耗时：** 典型 8 位 MCU 上每次 `safetimer_process()` 调用约 5-10µs
 
 **扩展能力（通过 MAX_TIMERS 配置）：**
 - 4 定时器（默认）= 58 字节 RAM
@@ -279,16 +278,18 @@ make coverage
 
 ## 🛠️ 支持的平台
 
-### 已测试
-- **SC8F072**（SDCC 4.x）- 示例位于 `examples/sc8f072/` ⏳ 待完成
-- **STM8**（SDCC 4.x）- 示例位于 `examples/stm8/` ⏳ 待完成
-- **STC8**（Keil C51 9.x）- 示例位于 `examples/stc8/` ⏳ 待完成
+SafeTimer 设计为高度可移植，可在任何满足以下条件的 MCU 上运行：
+- C99 兼容编译器（或 C89 + `stdint.h`）
+- 中断支持（启用/禁用）
+- 能产生 1ms 周期中断的硬件定时器
 
-### 兼容（未测试）
-- AVR（GCC）
-- PIC（XC8）
-- 8051（任意 C99 编译器）
-- 任何具有 1ms 时间基准的 MCU
+**兼容架构：**
+- 8 位 MCU（8051、AVR、PIC 等）
+- 16 位 MCU
+- 32 位 MCU
+- 任何满足上述要求的架构
+
+参考 BSP 实现请查看 [`examples/`](examples/) 目录。
 
 ---
 
@@ -355,13 +356,13 @@ gcc -DMAX_TIMERS=16 -DENABLE_PARAM_CHECK=0 ...
 ### v1.0（当前）
 - [x] 核心实现
 - [x] 单元测试 + 模拟 BSP
-- [ ] BSP 示例（SC8F072、STM8、STC8）
+- [ ] 各类 MCU 的 BSP 示例
 - [ ] 完善文档
 - [ ] 测试覆盖率 ≥95%
 
 ### v1.1（未来）
 - [ ] GitHub Actions CI
-- [ ] 更多平台支持（AVR、PIC）
+- [ ] 更多 BSP 示例
 - [ ] 定时器分组
 - [ ] 定时器优先级
 - [ ] 性能基准测试

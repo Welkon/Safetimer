@@ -92,11 +92,11 @@ bsp_tick_t bsp_get_ticks(void) {
 }
 
 void bsp_enter_critical(void) {
-    EA = 0;  /* Disable interrupts (8051) */
+    EA = 0;  /* Disable interrupts */
 }
 
 void bsp_exit_critical(void) {
-    EA = 1;  /* Enable interrupts (8051) */
+    EA = 1;  /* Enable interrupts */
 }
 ```
 
@@ -200,11 +200,10 @@ SafeTimer has minimal requirements and runs on almost any 8-bit MCU:
 
 ## 📊 Resource Usage
 
-| MCU | RAM (default) | Flash (minimal) | Flash (full) | Processing |
-|-----|---------------|-----------------|--------------|------------|
-| SC8F072 | 58 bytes (4 timers) | ~0.8 KB | ~1.0 KB | ~5µs @ 8MHz |
-| STM8 | 58 bytes (4 timers) | ~0.8 KB | ~1.0 KB | ~5µs @ 16MHz |
-| STC8 | 58 bytes (4 timers) | ~1.0 KB | ~1.2 KB | ~7µs @ 11MHz |
+**Default Configuration (4 timers):**
+- **RAM:** 58 bytes (4 timers) to 114 bytes (8 timers)
+- **Flash:** ~0.8 KB (minimal) to ~1.2 KB (full featured)
+- **Processing:** ~5-10µs per `safetimer_process()` call on typical 8-bit MCUs
 
 **Flash Configurations:**
 - **Minimal (~0.8KB):** `ENABLE_QUERY_API=0` + `ENABLE_PARAM_CHECK=0` (production-optimized)
@@ -226,7 +225,7 @@ SafeTimer provides compile-time configuration for resource optimization:
 ```
 - **Disabled (0):** Saves ~200 bytes Flash (20% of library size)
   - Removes: `safetimer_stop()`, `safetimer_get_status()`, `safetimer_get_remaining()`, `safetimer_get_pool_usage()`
-  - Best for: Production builds on resource-constrained MCUs (SC8F072 with 1KB Flash)
+  - Best for: Production builds on resource-constrained MCUs with limited Flash
 - **Enabled (1):** Full API available for debugging/diagnostics
   - Best for: Development, testing, dynamic timer management
 
@@ -319,16 +318,18 @@ make coverage
 
 ## 🛠️ Supported Platforms
 
-### Tested
-- **SC8F072** (SDCC 4.x) - Example in `examples/sc8f072/` ⏳ TODO
-- **STM8** (SDCC 4.x) - Example in `examples/stm8/` ⏳ TODO
-- **STC8** (Keil C51 9.x) - Example in `examples/stc8/` ⏳ TODO
+SafeTimer is designed to be highly portable and works on any MCU with:
+- C99-compatible compiler (or C89 with `stdint.h`)
+- Interrupt support (enable/disable)
+- Hardware timer capable of 1ms periodic interrupt
 
-### Compatible (Not Tested)
-- AVR (GCC)
-- PIC (XC8)
-- 8051 (any C99 compiler)
-- Any MCU with a 1ms tick source
+**Compatible Architectures:**
+- 8-bit MCUs (8051, AVR, PIC, etc.)
+- 16-bit MCUs
+- 32-bit MCUs
+- Any architecture with the above requirements
+
+See [`examples/`](examples/) directory for reference BSP implementations.
 
 ---
 
@@ -411,13 +412,13 @@ Enable `ENABLE_PARAM_CHECK=1` to catch this at runtime.
 ### v1.0 (Current)
 - [x] Core implementation
 - [x] Unit tests + Mock BSP
-- [ ] BSP examples (SC8F072, STM8, STC8)
+- [ ] BSP examples for various MCUs
 - [ ] Complete documentation
 - [ ] Test coverage ≥95%
 
 ### v1.1 (Future)
 - [ ] GitHub Actions CI
-- [ ] Additional platform support (AVR, PIC)
+- [ ] Additional BSP examples
 - [ ] Timer groups
 - [ ] Timer priority
 - [ ] Performance benchmarks
