@@ -5,6 +5,38 @@ All notable changes to SafeTimer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - v1.3.0 (计划)
+
+### 🎯 Per-Timer Catch-up Control (计划中)
+
+**目标：** 实现每个定时器独立选择 catch-up 行为，而非全局编译时控制。
+
+**新增功能：**
+- 新增 `TIMER_MODE_REPEAT_CATCHUP` 枚举值（追赶模式）
+- 保留 `TIMER_MODE_REPEAT` 默认行为（跳过模式）
+- 每个定时器创建时独立选择模式
+
+**向后兼容：**
+- `SAFETIMER_ENABLE_CATCHUP` 宏标记为 `@deprecated`，但保持功能
+- 当宏=1 时，自动将 `TIMER_MODE_REPEAT` 转换为 `TIMER_MODE_REPEAT_CATCHUP`
+- v1.4.0 可选移除该宏
+
+**资源开销：**
+- RAM: +0 字节（复用现有 `mode` 字段）
+- Flash: +40-60 字节（保留双分支逻辑）
+
+**设计决策：**
+- 基于 Codex 分析推荐（2025-12-17）
+- 观察 v1.2.5 用户反馈后再实施
+- 预计 2025-Q1 发布
+
+**参考：**
+- v1.2.5 引入全局 `SAFETIMER_ENABLE_CATCHUP` 宏作为临时方案
+- 真实场景极少需要混合使用两种模式
+- 遵守语义版本规范（minor 版本增加功能）
+
+---
+
 ## [1.2.5] - 2025-12-17
 
 ### 🐛 Bug 修复：修复 v1.2.4 引入的追赶效应（Catch-up）回归
