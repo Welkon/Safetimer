@@ -5,6 +5,69 @@ All notable changes to SafeTimer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.4] - 2025-12-17
+
+### 🐛 Bug 修复：消除 REPEAT 定时器累计误差
+
+#### 问题描述
+
+**修复前的问题：**
+- REPEAT 模式定时器每次触发后，使用 `current_tick + period` 计算下次触发时间
+- 如果 `safetimer_process()` 调用有延迟，误差会线性累积
+- 示例：1000ms 周期，每次延迟 5ms，10 个周期后累计误差达到 50ms
+
+**累计误差演示：**
+```
+周期 1: 理想 1000ms, 实际 1005ms → 下次 2005ms (误差 +5ms)
+周期 2: 理想 2000ms, 实际 2010ms → 下次 3010ms (误差 +10ms)
+周期 10: 累计误差 +50ms
+```
+
+#### 修复方案
+
+**修改算法（相位锁定）：**
+```c
+// 修复前：基于当前实际时间
+expire_time = current_tick + period;  // 误差累积
+
+// 修复后：基于上次期望时间
+expire_time += period;  // 零累计误差
+```
+
+**效果：**
+- ✅ 消除线性漂移，REPEAT 定时器保持相位锁定
+- ✅ 长期运行不会累积误差
+- ✅ 溢出处理完全兼容（ADR-005 有符号差值算法）
+
+#### 技术细节
+
+**边界情况处理：**
+- 初始启动：`safetimer_start()` 仍使用 `current_tick + period`，无影响
+- 长时间延迟：如果错过多个周期，定时器会连续触发直到重新对齐，但不会累积额外误差
+
+**代码变更：**
+- `src/safetimer.c:561` - 修改 REPEAT 定时器的 expire_time 更新方式
+- `single-file/safetimer_single.c:111` - 同步修复
+- 更新 `trigger_timer()` 函数注释说明相位锁定行为
+
+**验证：**
+- 溢出安全性：通过 ADR-005 有符号差值算法验证
+- 边界情况：Codex 分析确认无副作用
+
+#### 影响范围
+
+**受益场景：**
+- 需要长期运行的周期性任务（LED 闪烁、心跳包）
+- 精度要求较高的定时应用
+- 系统负载波动导致 `safetimer_process()` 调用不均匀的场景
+
+**无影响场景：**
+- ONE_SHOT 定时器（无重复触发）
+- 短时运行的临时定时器
+
+**版本分类：** Bug 修复（v1.2.4）- 符合预期行为，无 API 变更
+---
+
 ## [1.2.3] - 2025-12-16
 
 ### 📚 文档改进：使用场景与最佳实践

@@ -1,7 +1,7 @@
 /**
  * @file    safetimer_single.c
  * @brief   SafeTimer - Single-File Implementation
- * @version 1.2.1-single
+ * @version 1.2.4-single
  * @date    2025-12-16
  */
 
@@ -107,7 +107,8 @@ static void trigger_timer(int slot_index, bsp_tick_t current_tick,
   if (slot->mode == TIMER_MODE_ONE_SHOT) {
     slot->active = 0;
   } else {
-    update_expire_time(slot_index, current_tick);
+    /* REPEAT: keep cadence by advancing from the last scheduled tick */
+    slot->expire_time += slot->period;
   }
 }
 

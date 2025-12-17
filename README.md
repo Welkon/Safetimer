@@ -588,6 +588,14 @@ Slot 3: Delayed action (temp)
 
 ## 📝 Changelog
 
+### v1.2.4 (2025-12-17)
+- 🐛 **Bug Fix**: Eliminated cumulative drift in REPEAT timers
+  - Changed from `expire_time = current_tick + period` to `expire_time += period`
+  - REPEAT timers now phase-locked to original schedule, zero cumulative error
+  - Long-term accuracy maintained even with `safetimer_process()` call delays
+  - Compatible with ADR-005 overflow handling (signed difference algorithm)
+  - No API changes, purely internal algorithm improvement
+
 ### v1.2.3 (2025-12-16)
 - 📚 **Documentation Improvements**: Use cases and best practices
   - Added "Use Cases & Best Practices" section to README
@@ -630,4 +638,4 @@ Slot 3: Delayed action (temp)
 
 ---
 
-**Current Version:** 1.2.3 (2025-12-16)
+**Current Version:** 1.2.4 (2025-12-17)

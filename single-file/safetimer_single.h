@@ -1,7 +1,7 @@
 /**
  * @file    safetimer_single.h
  * @brief   SafeTimer - Single-File Header Version
- * @version 1.2.1-single
+ * @version 1.2.4-single
  * @date    2025-12-16
  * @author  SafeTimer Project
  * @license MIT

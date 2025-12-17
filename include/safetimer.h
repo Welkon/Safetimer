@@ -1,7 +1,7 @@
 /**
  * @file    safetimer.h
  * @brief   SafeTimer - Lightweight Embedded Timer Library
- * @version 1.2.1
+ * @version 1.2.4
  * @date    2025-12-16
  * @author  SafeTimer Project
  * @license MIT
@@ -15,10 +15,10 @@ extern "C" {
 #endif
 
 /* ========== Version Information ========== */
-#define SAFETIMER_VERSION       "1.0.0"
+#define SAFETIMER_VERSION       "1.2.4"
 #define SAFETIMER_VERSION_MAJOR 1
-#define SAFETIMER_VERSION_MINOR 0
-#define SAFETIMER_VERSION_PATCH 0
+#define SAFETIMER_VERSION_MINOR 2
+#define SAFETIMER_VERSION_PATCH 4
 
 /* ========== Configuration ========== */
 #include "safetimer_config.h"

@@ -1,7 +1,7 @@
 /**
  * @file    safetimer.c
  * @brief   SafeTimer Core Implementation
- * @version 1.2.1
+ * @version 1.2.4
  * @date    2025-12-16
  * @author  SafeTimer Project
  * @license MIT
@@ -531,7 +531,7 @@ STATIC void update_expire_time(int slot_index, bsp_tick_t current_tick)
  * @param slot_index Valid slot index (0 ~ MAX_TIMERS-1)
  *
  * @note For ONE_SHOT: stops timer after callback
- * @note For REPEAT: resets expire_time and continues
+ * @note For REPEAT: advances expire_time by period (phase-locked, eliminates drift)
  * @note Calls user callback if not NULL
  * @note Called outside critical section to allow callback to run safely
  */
@@ -557,7 +557,7 @@ STATIC void trigger_timer(int slot_index, bsp_tick_t current_tick,
     }
     else
     {
-        /* REPEAT: reset expiration time */
-        update_expire_time(slot_index, current_tick);
+        /* REPEAT: keep cadence by advancing from the last scheduled tick */
+        g_timer_pool.slots[slot_index].expire_time += g_timer_pool.slots[slot_index].period;
     }
 }
