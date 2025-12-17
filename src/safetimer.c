@@ -1,7 +1,7 @@
 /**
  * @file    safetimer.c
  * @brief   SafeTimer Core Implementation
- * @version 1.2.4
+ * @version 1.2.5
  * @date    2025-12-16
  * @author  SafeTimer Project
  * @license MIT
@@ -557,7 +557,18 @@ STATIC void trigger_timer(int slot_index, bsp_tick_t current_tick,
     }
     else
     {
-        /* REPEAT: keep cadence by advancing from the last scheduled tick */
+        /* REPEAT: advance until the next expiration is in the future */
+#if SAFETIMER_ENABLE_CATCHUP
+        /* Catch-up mode: fire callbacks for each missed interval */
         g_timer_pool.slots[slot_index].expire_time += g_timer_pool.slots[slot_index].period;
+#else
+        /* Skip mode (default): coalesce missed intervals */
+        do
+        {
+            g_timer_pool.slots[slot_index].expire_time += g_timer_pool.slots[slot_index].period;
+        }
+        while (safetimer_tick_diff(current_tick,
+                                   g_timer_pool.slots[slot_index].expire_time) >= 0);
+#endif
     }
 }

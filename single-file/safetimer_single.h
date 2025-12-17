@@ -1,7 +1,7 @@
 /**
  * @file    safetimer_single.h
  * @brief   SafeTimer - Single-File Header Version
- * @version 1.2.4-single
+ * @version 1.2.5-single
  * @date    2025-12-16
  * @author  SafeTimer Project
  * @license MIT
@@ -58,7 +58,20 @@ extern "C" {
  * Set to 1 for development/debugging
  */
 #ifndef ENABLE_QUERY_API
-#define ENABLE_QUERY_API 0  /* Disabled by default for SC8F072 */
+#define ENABLE_QUERY_API 0  /* Disabled by default */
+#endif
+
+/**
+ * @brief Enable catch-up behavior for REPEAT timers
+ * 0 = Skip missed intervals (default), 1 = Fire for each missed interval
+ *
+ * DISABLED (0): Single callback, deterministic (LED blink, timeouts)
+ * ENABLED (1): Burst callbacks for exact count (sampling, integrators)
+ *
+ * Default 0 to avoid starving schedulers. See safetimer_config.h for details.
+ */
+#ifndef SAFETIMER_ENABLE_CATCHUP
+#define SAFETIMER_ENABLE_CATCHUP 0
 #endif
 
 /**

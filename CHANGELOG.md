@@ -5,6 +5,91 @@ All notable changes to SafeTimer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.5] - 2025-12-17
+
+### 🐛 Bug 修复：修复 v1.2.4 引入的追赶效应（Catch-up）回归
+
+#### 问题背景
+
+v1.2.4 修复了累计误差问题，但引入了**追赶效应（Catch-up Burst）**：
+
+**场景：** 100ms 周期定时器，系统阻塞 350ms
+
+**v1.2.4 行为（有问题）：**
+- 连续调用 `safetimer_process()` 会触发 3 次回调（Burst）
+- expire_time: 100ms → 200ms → 300ms → 400ms
+- 回调在短时间内连续执行，可能导致：
+  - 饿死协作调度器
+  - GPIO 切换异常（LED 狂闪）
+  - 通信协议破坏
+  - 不可预测的时序
+
+#### 修复方案
+
+**新增配置宏：`SAFETIMER_ENABLE_CATCHUP`（默认 0）**
+
+```c
+/* safetimer_config.h */
+#define SAFETIMER_ENABLE_CATCHUP 0  /* 0=跳过, 1=追赶 */
+```
+
+**默认行为（DISABLED=0）：跳过错过的间隔**
+```c
+/* 循环推进 expire_time 直到未来 */
+do {
+    expire_time += period;
+} while (current_tick >= expire_time);
+```
+
+**可选行为（ENABLED=1）：v1.2.4 追赶模式**
+```c
+/* 单次推进，需多次 safetimer_process() 触发 */
+expire_time += period;
+```
+
+#### 行为对比
+
+| 特性 | v1.2.5 默认（跳过） | v1.2.5 可选（追赶） |
+|------|-------------------|-------------------|
+| **Burst 回调** | ✅ 不会 | ❌ 可能 |
+| **错过触发** | ❌ 跳过 | ✅ 补偿 |
+| **CPU 使用** | ✅ 确定性 | ⚠️ 不可预测 |
+| **长期误差** | ✅ 零累积 | ✅ 零累积 |
+| **适用场景** | LED、超时、心跳 | 采样、积分、统计 |
+
+#### 技术细节
+
+**实现位置：**
+- `src/safetimer.c:560-572` - 标准版跳过逻辑
+- `single-file/safetimer_single.c:110-120` - 单文件版同步
+- `include/safetimer_config.h:80-125` - 配置宏定义
+
+**性能影响：**
+- 跳过模式：O(n) where n=错过的间隔数（临界区内）
+- 追赶模式：O(1) per `safetimer_process()`（但需多次调用）
+
+**向后兼容性：**
+- v1.2.5 默认行为恢复到 v1.2.3 及更早版本
+- v1.2.4 用户可设置 `SAFETIMER_ENABLE_CATCHUP=1` 保留原行为
+
+#### 设计决策
+
+**为什么默认跳过？**
+1. 符合嵌入式系统预期（8-bit MCU 常见 ISR 锁定/轮询抖动）
+2. 避免安全关键场景的意外 Burst
+3. 提供确定性 CPU 使用
+4. 向后兼容 v1.2.3 及更早版本
+
+**何时启用追赶？**
+- 需要精确计数的场景（采样计数器、积分器）
+- 可以容忍 Burst 回调的场景
+- 编译时设置：`gcc -DSAFETIMER_ENABLE_CATCHUP=1`
+
+#### 未来规划
+
+**v1.3.0（计划）：** 添加 `TIMER_MODE_REPEAT_CATCHUP` 新模式，实现每个定时器独立控制行为。
+---
+
 ## [1.2.4] - 2025-12-17
 
 ### 🐛 Bug 修复：消除 REPEAT 定时器累计误差

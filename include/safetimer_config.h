@@ -1,7 +1,7 @@
 /**
  * @file    safetimer_config.h
  * @brief   Compile-time Configuration for SafeTimer
- * @version 1.2.4
+ * @version 1.2.5
  * @date    2025-12-16
  *
  * @note User can override these settings by:
@@ -75,6 +75,53 @@
  */
 #ifndef ENABLE_QUERY_API
 #define ENABLE_QUERY_API 0  /* Default: disabled for minimal footprint */
+#endif
+
+/* ========== REPEAT Timer Behavior ========== */
+
+/**
+ * @brief Enable catch-up behavior for REPEAT timers
+ *
+ * 0 = Disabled (skip missed intervals, default)
+ * 1 = Enabled (fire callbacks for each missed interval)
+ *
+ * Behavior Comparison:
+ *
+ * Scenario: 100ms period timer, system blocked for 350ms
+ *
+ * DISABLED (0 - default):
+ *   - Single callback fires when system resumes
+ *   - expire_time advances to next future interval (400ms)
+ *   - Missed intervals (100ms, 200ms, 300ms) are skipped
+ *   - No burst callbacks, deterministic CPU usage
+ *   - Suitable for: LED blink, UI updates, timeouts, heartbeats
+ *
+ * ENABLED (1):
+ *   - Multiple callbacks fire in rapid succession (burst)
+ *   - Each call to safetimer_process() triggers one callback
+ *   - expire_time: 100ms → 200ms → 300ms → 400ms
+ *   - Ensures exact count of callbacks over time
+ *   - Suitable for: sampling counters, integrators, event statistics
+ *
+ * Flash Impact: ~30 bytes (while loop vs single increment)
+ *
+ * Performance Impact:
+ *   DISABLED: O(n) where n = missed intervals (inside critical section)
+ *   ENABLED:  O(1) per safetimer_process() call (but multiple calls needed)
+ *
+ * Embedded Systems Recommendation:
+ *   Default DISABLED because burst callbacks can:
+ *   - Starve cooperative schedulers
+ *   - Toggle GPIOs erratically
+ *   - Break communication protocols
+ *   - Cause unpredictable timing in ISR-sensitive systems
+ *
+ * @note v1.2.4 behavior = ENABLED (1)
+ * @note v1.2.5+ default = DISABLED (0) to restore pre-v1.2.4 expectations
+ * @note For v1.3.0: Use TIMER_MODE_REPEAT_CATCHUP instead of this macro
+ */
+#ifndef SAFETIMER_ENABLE_CATCHUP
+#define SAFETIMER_ENABLE_CATCHUP 0  /* Default: skip missed intervals */
 #endif
 
 /* ========== Parameter Validation ========== */

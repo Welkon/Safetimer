@@ -1,7 +1,7 @@
 /**
  * @file    safetimer_single.c
  * @brief   SafeTimer - Single-File Implementation
- * @version 1.2.4-single
+ * @version 1.2.5-single
  * @date    2025-12-16
  */
 
@@ -107,8 +107,16 @@ static void trigger_timer(int slot_index, bsp_tick_t current_tick,
   if (slot->mode == TIMER_MODE_ONE_SHOT) {
     slot->active = 0;
   } else {
-    /* REPEAT: keep cadence by advancing from the last scheduled tick */
+    /* REPEAT: advance until the next expiration is in the future */
+#if SAFETIMER_ENABLE_CATCHUP
+    /* Catch-up mode: fire callbacks for each missed interval */
     slot->expire_time += slot->period;
+#else
+    /* Skip mode (default): coalesce missed intervals */
+    do {
+      slot->expire_time += slot->period;
+    } while (safetimer_tick_diff(current_tick, slot->expire_time) >= 0);
+#endif
   }
 }
 

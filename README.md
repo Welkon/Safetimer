@@ -588,6 +588,15 @@ Slot 3: Delayed action (temp)
 
 ## 📝 Changelog
 
+### v1.2.5 (2025-12-17)
+- 🐛 **Regression Fix**: Fixed catch-up burst introduced in v1.2.4
+  - Added `SAFETIMER_ENABLE_CATCHUP` macro (default: 0 - skip missed intervals)
+  - Default behavior: Skip missed intervals, no burst callbacks (deterministic CPU usage)
+  - Optional behavior: Enable catch-up with `SAFETIMER_ENABLE_CATCHUP=1` (v1.2.4 behavior)
+  - Restores pre-v1.2.4 expectations for LED blink, timeouts, heartbeat scenarios
+  - Maintains zero cumulative drift from v1.2.4
+  - See CHANGELOG.md for detailed analysis and design decisions
+
 ### v1.2.4 (2025-12-17)
 - 🐛 **Bug Fix**: Eliminated cumulative drift in REPEAT timers
   - Changed from `expire_time = current_tick + period` to `expire_time += period`
@@ -638,4 +647,4 @@ Slot 3: Delayed action (temp)
 
 ---
 
-**Current Version:** 1.2.4 (2025-12-17)
+**Current Version:** 1.2.5 (2025-12-17)
