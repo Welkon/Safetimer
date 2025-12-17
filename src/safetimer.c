@@ -1,7 +1,7 @@
 /**
  * @file    safetimer.c
  * @brief   SafeTimer Core Implementation
- * @version 1.2.5
+ * @version 1.2.6
  * @date    2025-12-16
  * @author  SafeTimer Project
  * @license MIT
@@ -231,6 +231,69 @@ timer_error_t safetimer_delete(safetimer_handle_t handle)
 
     /* Release slot */
     g_timer_pool.used_bitmap &= ~(1U << handle);
+
+    bsp_exit_critical();
+
+    return TIMER_OK;
+}
+
+/**
+ * @brief Dynamically change timer period
+ *
+ * Implementation details:
+ * - Validates period range (1 ~ 2^31-1 ms)
+ * - Validates handle using validate_handle()
+ * - Updates period field immediately
+ * - If timer is running (active=1), restarts countdown from current tick
+ * - If timer is stopped (active=0), new period takes effect on next start()
+ * - Critical section protects period update and expire_time recalculation
+ *
+ * Design trade-off:
+ * - Immediate restart breaks REPEAT mode phase-locking (intentional)
+ * - Alternative "delayed effect" would require +4B RAM per timer
+ * - Users can preserve phase by calling from timer callback
+ *
+ * @note This function is thread-safe and can be called from any context
+ *       except timer callbacks (ADR-003 restriction applies)
+ */
+timer_error_t safetimer_set_period(
+    safetimer_handle_t  handle,
+    uint32_t            new_period_ms
+)
+{
+#if ENABLE_PARAM_CHECK
+    /* Validate period range */
+    if (new_period_ms == 0 || new_period_ms > 0x7FFFFFFFUL)
+    {
+        return TIMER_ERR_INVALID;  /* Period must be 1 ~ 2^31-1 */
+    }
+
+    /* Validate handle and check if slot is allocated */
+    if (!validate_handle(handle))
+    {
+        return TIMER_ERR_INVALID;  /* Invalid handle or timer deleted */
+    }
+#endif
+
+    bsp_tick_t current_tick;
+
+    /* Read BSP tick before entering the SafeTimer critical section to avoid
+     * nested interrupt masking inside bsp_get_ticks(). */
+    current_tick = bsp_get_ticks();
+
+    bsp_enter_critical();
+
+    /* Update period field */
+    g_timer_pool.slots[handle].period = new_period_ms;
+
+    /* If timer is currently running, restart countdown with new period.
+     * This is equivalent to "delete + create + start" but preserves handle.
+     * Breaks phase-locking intentionally - documented trade-off. */
+    if (g_timer_pool.slots[handle].active)
+    {
+        g_timer_pool.slots[handle].expire_time = current_tick + new_period_ms;
+    }
+    /* If timer is stopped, new period takes effect on next safetimer_start() */
 
     bsp_exit_critical();
 

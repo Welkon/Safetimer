@@ -1,7 +1,7 @@
 /**
  * @file    safetimer_single.h
  * @brief   SafeTimer - Single-File Header Version
- * @version 1.2.5-single
+ * @version 1.2.6-single
  * @date    2025-12-16
  * @author  SafeTimer Project
  * @license MIT
@@ -205,6 +205,28 @@ safetimer_err_t safetimer_start(safetimer_handle_t handle);
  * @return SAFETIMER_OK on success, error code otherwise
  */
 safetimer_err_t safetimer_delete(safetimer_handle_t handle);
+
+/**
+ * @brief Dynamically change timer period
+ *
+ * @param handle Timer handle
+ * @param new_period_ms New period in milliseconds (1 ~ 2^31-1)
+ * @return SAFETIMER_OK on success, error code otherwise
+ *
+ * @warning Restarts timer immediately (breaks phase-locking)
+ * @note safetimer_handle_t is int, NOT pointer! Don't use timer->period = x
+ *
+ * @example Button control
+ *   safetimer_set_period(led_timer, new_period);  // Immediate effect
+ *
+ * @example Preserve phase
+ *   void callback(void* data) {
+ *       toggle_led();
+ *       safetimer_set_period(timer, target);  // At trigger point
+ *   }
+ */
+safetimer_err_t safetimer_set_period(safetimer_handle_t handle,
+                                      uint32_t new_period_ms);
 
 /**
  * @brief Process all timers (call regularly in main loop)

@@ -1,7 +1,7 @@
 /**
  * @file    safetimer_config.h
  * @brief   Compile-time Configuration for SafeTimer
- * @version 1.2.5
+ * @version 1.2.6
  * @date    2025-12-16
  *
  * @note User can override these settings by:

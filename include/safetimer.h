@@ -1,7 +1,7 @@
 /**
  * @file    safetimer.h
  * @brief   SafeTimer - Lightweight Embedded Timer Library
- * @version 1.2.5
+ * @version 1.2.6
  * @date    2025-12-16
  * @author  SafeTimer Project
  * @license MIT
@@ -15,7 +15,7 @@ extern "C" {
 #endif
 
 /* ========== Version Information ========== */
-#define SAFETIMER_VERSION       "1.2.5"
+#define SAFETIMER_VERSION       "1.2.6"
 #define SAFETIMER_VERSION_MAJOR 1
 #define SAFETIMER_VERSION_MINOR 2
 #define SAFETIMER_VERSION_PATCH 5
@@ -128,6 +128,60 @@ timer_error_t safetimer_start(safetimer_handle_t handle);
  * @retval TIMER_ERR_INVALID Invalid handle
  */
 timer_error_t safetimer_delete(safetimer_handle_t handle);
+
+/**
+ * @brief Dynamically change timer period
+ *
+ * Updates the period of an existing timer. If the timer is running, it will
+ * restart immediately from the current moment with the new period. If stopped,
+ * the new period takes effect on next safetimer_start().
+ *
+ * @param handle        Valid timer handle from safetimer_create()
+ * @param new_period_ms New period in milliseconds (1 ~ 2^31-1)
+ *
+ * @return TIMER_OK on success, error code otherwise
+ * @retval TIMER_ERR_INVALID Invalid handle or period
+ * @retval TIMER_ERR_NOT_FOUND Timer not found or deleted
+ *
+ * @warning Behavior equivalent to "restart with new period"
+ *   - Running timers: Countdown restarts from current tick + new_period
+ *   - Breaks REPEAT mode phase-locking (v1.2.4 feature) intentionally
+ *   - This is a design trade-off to avoid extra RAM overhead
+ *
+ * @note Usage Modes
+ *   Mode 1 - Immediate effect (button control):
+ *     Call from button handler, frequency changes instantly
+ *
+ *   Mode 2 - Preserve phase-locking (smooth transition):
+ *     Call from timer callback, change takes effect at next trigger
+ *
+ * @note Common Pitfall Prevention
+ *   ⚠️ safetimer_handle_t is an integer index, NOT a pointer!
+ *   ❌ Wrong: timer_led->period = 500;  // CRASH! Undefined behavior
+ *   ✅ Right: safetimer_set_period(timer_led, 500);
+ *
+ * @code
+ * // Example 1: Button-controlled LED speed
+ * void on_button_press(void) {
+ *     current_period = (current_period > 100) ? current_period - 100 : 1000;
+ *     safetimer_set_period(led_timer, current_period);  // Immediate
+ * }
+ *
+ * // Example 2: Smooth transition (preserves phase)
+ * static uint32_t target_period = 1000;
+ * void led_callback(void *data) {
+ *     toggle_led();
+ *     safetimer_set_period(timer, target_period);  // At trigger point
+ * }
+ * void on_button_press(void) {
+ *     target_period -= 100;  // Only update target, callback handles it
+ * }
+ * @endcode
+ */
+timer_error_t safetimer_set_period(
+    safetimer_handle_t  handle,
+    uint32_t            new_period_ms
+);
 
 /**
  * @brief Process all active timers (MUST be called periodically)

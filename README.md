@@ -647,4 +647,4 @@ Slot 3: Delayed action (temp)
 
 ---
 
-**Current Version:** 1.2.5 (2025-12-17)
+**Current Version:** 1.2.6 (2025-12-17)

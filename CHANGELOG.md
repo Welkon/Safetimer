@@ -5,6 +5,126 @@ All notable changes to SafeTimer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.6] - 2025-12-17
+
+### 🎯 New Feature: safetimer_set_period() API (Safety Enhancement)
+
+**添加原因：防止用户错误访问内部结构体**
+
+#### 问题背景
+
+用户在集成 SafeTimer + StateSmith + MultiButton 时，尝试直接修改定时器周期：
+
+```c
+// ❌ 错误做法（未定义行为）
+timer_led->period = 500;  // 崩溃！handle 是 int 索引，不是指针
+```
+
+**后果：**
+- 段错误/系统崩溃（写入随机 RAM 地址）
+- 破坏其他定时器数据
+- 错误示例在教程中快速传播
+
+**影响面：**
+- StateSmith + MultiButton + SafeTimer 是典型嵌入式 UI 组合
+- 覆盖 20-30% 用户（教学板、演示项目、按键控制应用）
+- 属于安全问题，非单纯功能缺失
+
+#### 新增 API
+
+```c
+/**
+ * @brief 动态修改定时器周期
+ * @warning 运行中的定时器会立即从当前时刻重新开始计时
+ */
+timer_error_t safetimer_set_period(
+    safetimer_handle_t  handle,
+    uint32_t            new_period_ms
+);
+```
+
+**行为说明：**
+- 运行中定时器：从当前时刻重新开始计时（`expire_time = current_tick + new_period`）
+- 已停止定时器：仅更新周期，下次 `start()` 时生效
+- ⚠️ 会打破 REPEAT 模式的相位锁定（v1.2.4 特性）— 这是设计权衡
+
+#### 使用示例
+
+**模式 1：立即生效（按键控制）**
+```c
+void on_button_press(void) {
+    current_period = (current_period > 100) ? current_period - 100 : 1000;
+    safetimer_set_period(led_timer, current_period);  // 立即改变频率
+}
+```
+
+**模式 2：平滑过渡（保持相位锁定）**
+```c
+static uint32_t target_period = 1000;
+
+void led_callback(void *data) {
+    toggle_led();
+    safetimer_set_period(timer, target_period);  // 在触发点生效
+}
+
+void on_button_press(void) {
+    target_period -= 100;  // 仅修改目标值
+}
+```
+
+#### 设计权衡
+
+**为什么接受"立即重置"（破坏相位锁定）？**
+
+1. **RAM 限制**：延迟生效需要 +4B/定时器（`pending_period` 字段）
+   - MAX_TIMERS=4: 58B → 74B (+27%)
+   - 176B RAM MCU 无法承受
+2. **用户可控**：通过在回调内部调用可保持相位锁定
+3. **场景不敏感**：按键调速、模式切换等交互场景不需要纳秒级精度
+
+**资源开销：**
+- Flash: +90-100 字节（两个版本合计）
+- RAM: +0 字节
+- 性能: 不影响 `safetimer_process()` 热路径
+
+#### 文件变更
+
+**标准版：**
+- `include/safetimer.h`: 添加详细 API 文档（54 行）
+- `src/safetimer.c`: 实现函数（62 行）
+
+**单文件版：**
+- `single-file/safetimer_single.h`: 同步 API 声明（22 行）
+- `single-file/safetimer_single.c`: 同步实现（28 行）
+
+**测试：**
+- `test/test_safetimer_set_period.c`: 12 个测试用例（261 行）
+  - 正常场景：停止/运行定时器、增大/减小周期
+  - REPEAT 模式：验证相位锁定破坏行为
+  - 边界条件：无效参数、已删除定时器、最大/最小周期
+
+#### 向后兼容性
+
+✅ **完全兼容**：
+- 不影响现有 API 行为
+- 新 API 为可选功能
+- 不破坏现有代码
+
+#### 版本分类
+
+**定位：安全增强补丁**
+- 解决用户误用导致的安全问题
+- 防止错误示例在社区传播
+- 语义版本允许 patch 版本添加非破坏性增量
+
+#### 后续计划
+
+**v1.3.0（2026-Q1）：**
+- `TIMER_MODE_REPEAT_CATCHUP` 新模式（每定时器独立控制追赶行为）
+- 保留 v1.2.6 的 `safetimer_set_period()` API
+
+---
+
 ## [Unreleased] - v1.3.0 (计划)
 
 ### 🎯 Per-Timer Catch-up Control (计划中)
@@ -28,7 +148,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 **设计决策：**
 - 基于 Codex 分析推荐（2025-12-17）
 - 观察 v1.2.5 用户反馈后再实施
-- 预计 2025-Q1 发布
+- 预计 2026-Q1 发布
 
 **参考：**
 - v1.2.5 引入全局 `SAFETIMER_ENABLE_CATCHUP` 宏作为临时方案

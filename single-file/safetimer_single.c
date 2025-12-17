@@ -1,7 +1,7 @@
 /**
  * @file    safetimer_single.c
  * @brief   SafeTimer - Single-File Implementation
- * @version 1.2.5-single
+ * @version 1.2.6-single
  * @date    2025-12-16
  */
 
@@ -231,6 +231,36 @@ safetimer_err_t safetimer_delete(safetimer_handle_t handle) {
   g_timer_pool.slots[index].active = 0;
   g_timer_pool.used_bitmap =
       (uint8_t)(g_timer_pool.used_bitmap & (uint8_t)(~mask));
+
+  bsp_exit_critical();
+
+  return SAFETIMER_OK;
+}
+
+safetimer_err_t safetimer_set_period(safetimer_handle_t handle,
+                                      uint32_t new_period_ms) {
+#if ENABLE_PARAM_CHECK
+  if (new_period_ms == 0 || new_period_ms > 0x7FFFFFFF) {
+    return SAFETIMER_ERR_INVALID_PARAM;
+  }
+  if (!validate_handle(handle)) {
+    return SAFETIMER_ERR_INVALID_HANDLE;
+  }
+#endif
+
+  bsp_tick_t current_tick;
+  uint8_t index;
+
+  current_tick = bsp_get_ticks();
+
+  bsp_enter_critical();
+
+  index = (uint8_t)handle;
+  g_timer_pool.slots[index].period = new_period_ms;
+
+  if (g_timer_pool.slots[index].active) {
+    g_timer_pool.slots[index].expire_time = current_tick + new_period_ms;
+  }
 
   bsp_exit_critical();
 
