@@ -153,9 +153,15 @@ typedef int8_t safetimer_sem_t;
  *
  * @warning Can ONLY be used inside SAFETIMER_CORO_BEGIN/END block
  * @warning ctx variable must be defined (from SAFETIMER_CORO_BEGIN)
- * @warning timeout_count must be ≤ 126 (int8_t limitation)
+ * @warning CRITICAL: timeout_count must be ≤ 126 (int8_t limitation, fixes Trap #10)
+ * @warning Overflow example: timeout_count=127 → wraps to -1 → immediate timeout!
+ * @warning For long timeouts, increase poll_ms instead of timeout_count
  */
 #define SAFETIMER_CORO_WAIT_SEM(sem, poll_ms, timeout_count) do { \
+    /* Compile-time check for timeout_count overflow (fixes Trap #10) */ \
+    _Static_assert((timeout_count) <= 126, \
+        "SAFETIMER_CORO_WAIT_SEM: timeout_count must be <= 126 (int8_t limit). " \
+        "Use larger poll_ms for longer timeouts."); \
     bsp_enter_critical(); \
     if ((sem) == 0) { \
         bsp_exit_critical(); \

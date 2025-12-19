@@ -22,7 +22,7 @@
 /* ========== Internal Data Structures ========== */
 
 /**
- * @brief Timer slot structure (14 bytes per timer)
+ * @brief Timer slot structure (15 bytes per timer)
  *
  * Memory layout (8-bit MCU, 2-byte pointers):
  *   period:          4 bytes (uint32_t)
@@ -31,7 +31,8 @@
  *   user_data:       2 bytes (void pointer)
  *   mode:            1 byte  (uint8_t)
  *   active:          1 byte  (uint8_t)
- *   TOTAL:          14 bytes/timer
+ *   generation:      1 byte  (uint8_t) - ABA problem prevention
+ *   TOTAL:          15 bytes/timer
  */
 typedef struct {
   bsp_tick_t period;      /**< Timer period in milliseconds */
@@ -40,22 +41,25 @@ typedef struct {
   void *user_data;           /**< User data passed to callback */
   uint8_t mode;              /**< TIMER_MODE_ONE_SHOT or TIMER_MODE_REPEAT */
   uint8_t active;            /**< 1=active, 0=inactive */
+  uint8_t generation;        /**< Generation counter (1~7, prevents ABA reuse) */
 } timer_slot_t;
 
 /**
  * @brief Timer pool structure (global state)
  *
  * Memory layout:
- *   slots:       MAX_TIMERS * 14 bytes (timer_slot_t array)
- *   used_bitmap: 4 bytes  (uint32_t, supports up to 32 timers)
- *   TOTAL:       MAX_TIMERS * 14 + 4 bytes
+ *   slots:           MAX_TIMERS * 15 bytes (timer_slot_t array)
+ *   used_bitmap:     4 bytes  (uint32_t, supports up to 32 timers)
+ *   next_generation: 1 byte   (uint8_t, global generation counter)
+ *   TOTAL:           MAX_TIMERS * 15 + 5 bytes
  *
- * For MAX_TIMERS=4: 4*14 + 4 = 60 bytes
- * For MAX_TIMERS=8: 8*14 + 4 = 116 bytes
+ * For MAX_TIMERS=4: 4*15 + 5 = 65 bytes
+ * For MAX_TIMERS=8: 8*15 + 5 = 125 bytes
  */
 typedef struct {
   timer_slot_t slots[MAX_TIMERS]; /**< Timer slot array */
   uint32_t used_bitmap; /**< Bitmap of used slots (bit 0 = slot 0, etc.) */
+  uint8_t next_generation; /**< Next generation ID (1~7, wraps, 0 reserved) */
 } safetimer_pool_t;
 
 /* Compile-time validation: MAX_TIMERS must not exceed bitmap width */
@@ -66,13 +70,32 @@ typedef struct {
 /* ========== Global Variables ========== */
 
 /**
- * @brief Global timer pool (60 bytes for MAX_TIMERS=4, 116 bytes for
+ * @brief Global timer pool (65 bytes for MAX_TIMERS=4, 125 bytes for
  * MAX_TIMERS=8)
  *
  * Initialized to zero by C standard (all timers inactive at startup).
+ * next_generation starts at 0 and will be incremented to 1 on first use.
  * Protected by BSP critical sections during modifications.
  */
 static safetimer_pool_t g_timer_pool = {0};
+
+/* ========== Handle Encoding/Decoding (ABA Prevention) ========== */
+
+/**
+ * @brief Handle encoding: [generation:3bit][index:5bit]
+ *
+ * Generation: 1~7 (0 reserved for INVALID_HANDLE = -1)
+ * Index: 0~31 (supports MAX_TIMERS <= 32)
+ *
+ * Example: generation=3, index=5 → handle = (3 << 5) | 5 = 101 (0x65)
+ */
+#define HANDLE_INDEX_MASK  0x1F  /* Lower 5 bits: 0b00011111 */
+#define HANDLE_GEN_MASK    0xE0  /* Upper 3 bits: 0b11100000 */
+#define HANDLE_GEN_SHIFT   5
+
+#define ENCODE_HANDLE(gen, idx) ((safetimer_handle_t)(((gen) << HANDLE_GEN_SHIFT) | (idx)))
+#define DECODE_INDEX(handle)    ((int)((handle) & HANDLE_INDEX_MASK))
+#define DECODE_GEN(handle)      ((uint8_t)(((handle) & HANDLE_GEN_MASK) >> HANDLE_GEN_SHIFT))
 
 /* ========== Static Function Prototypes ========== */
 
@@ -129,17 +152,27 @@ STATIC int32_t safetimer_tick_diff(bsp_tick_t lhs, bsp_tick_t rhs) {
  * - Uses bitmap to find free slot (O(n) search)
  * - Critical section protects slot allocation
  * - Timer initialized but NOT started (user must call safetimer_start)
+ * - Assigns generation counter to prevent ABA handle reuse (fixes Trap #1)
  */
 safetimer_handle_t safetimer_create(uint32_t period_ms, timer_mode_t mode,
                                     timer_callback_t callback,
                                     void *user_data) {
   int slot_index;
+  uint8_t generation;
+  safetimer_handle_t handle;
 
 #if ENABLE_PARAM_CHECK
   /* Validate parameters */
   if (period_ms == 0 || period_ms > 0x7FFFFFFFUL) {
     return SAFETIMER_INVALID_HANDLE; /* Period must be 1 ~ 2^31-1 */
   }
+
+#if BSP_TICK_TYPE_16BIT
+  /* 16-bit mode: max period is 65535ms (fixes Trap #13) */
+  if (period_ms > 65535UL) {
+    return SAFETIMER_INVALID_HANDLE; /* Period exceeds 16-bit limit */
+  }
+#endif
 
   if (mode != TIMER_MODE_ONE_SHOT && mode != TIMER_MODE_REPEAT) {
     return SAFETIMER_INVALID_HANDLE; /* Invalid mode */
@@ -155,17 +188,28 @@ safetimer_handle_t safetimer_create(uint32_t period_ms, timer_mode_t mode,
     return SAFETIMER_INVALID_HANDLE; /* Pool full */
   }
 
+  /* Allocate next generation ID (1~7, wraps, 0 reserved for INVALID_HANDLE) */
+  g_timer_pool.next_generation++;
+  if (g_timer_pool.next_generation == 0 || g_timer_pool.next_generation > 7) {
+    g_timer_pool.next_generation = 1;
+  }
+  generation = g_timer_pool.next_generation;
+
   /* Initialize timer slot */
   g_timer_pool.slots[slot_index].period = period_ms;
   g_timer_pool.slots[slot_index].mode = (uint8_t)mode;
   g_timer_pool.slots[slot_index].callback = callback;
   g_timer_pool.slots[slot_index].user_data = user_data;
   g_timer_pool.slots[slot_index].active = 0; /* Not started yet */
+  g_timer_pool.slots[slot_index].generation = generation;
   g_timer_pool.used_bitmap |= (1U << slot_index);
+
+  /* Encode handle: [generation:3bit][index:5bit] */
+  handle = ENCODE_HANDLE(generation, slot_index);
 
   bsp_exit_critical();
 
-  return (safetimer_handle_t)slot_index;
+  return handle;
 }
 
 /**
@@ -177,6 +221,8 @@ safetimer_handle_t safetimer_create(uint32_t period_ms, timer_mode_t mode,
  * - Critical section protects state modification
  */
 timer_error_t safetimer_start(safetimer_handle_t handle) {
+  int slot_index;
+
 #if ENABLE_PARAM_CHECK
   if (!validate_handle(handle)) {
     return TIMER_ERR_INVALID;
@@ -185,6 +231,9 @@ timer_error_t safetimer_start(safetimer_handle_t handle) {
 
   bsp_tick_t start_tick;
 
+  /* Decode handle to get slot index */
+  slot_index = DECODE_INDEX(handle);
+
   /* Read BSP tick before entering the SafeTimer critical section to avoid
    * nested interrupt masking inside bsp_get_ticks(). */
   start_tick = bsp_get_ticks();
@@ -192,10 +241,10 @@ timer_error_t safetimer_start(safetimer_handle_t handle) {
   bsp_enter_critical();
 
   /* Update expiration time */
-  update_expire_time((int)handle, start_tick);
+  update_expire_time(slot_index, start_tick);
 
   /* Mark as active */
-  g_timer_pool.slots[handle].active = 1;
+  g_timer_pool.slots[slot_index].active = 1;
 
   bsp_exit_critical();
 
@@ -214,20 +263,18 @@ timer_error_t safetimer_start(safetimer_handle_t handle) {
  * - Critical section protects state modification
  */
 timer_error_t safetimer_stop(safetimer_handle_t handle) {
-#if ENABLE_PARAM_CHECK
-  /* Range check */
-  if (handle < 0 || handle >= MAX_TIMERS) {
-    return TIMER_ERR_INVALID;
-  }
+  int slot_index;
 
-  /* Check if slot is allocated */
-  if ((g_timer_pool.used_bitmap & (1U << handle)) == 0) {
-    return TIMER_ERR_NOT_FOUND;
+#if ENABLE_PARAM_CHECK
+  if (!validate_handle(handle)) {
+    return TIMER_ERR_INVALID;
   }
 #endif
 
+  slot_index = DECODE_INDEX(handle);
+
   bsp_enter_critical();
-  g_timer_pool.slots[handle].active = 0;
+  g_timer_pool.slots[slot_index].active = 0;
   bsp_exit_critical();
 
   return TIMER_OK;
@@ -242,26 +289,26 @@ timer_error_t safetimer_stop(safetimer_handle_t handle) {
  * - Clears used_bitmap bit (releases slot)
  * - Stops timer if running
  * - Critical section protects bitmap modification
+ * - Generation counter prevents deleted handle reuse (ABA protection)
  */
 timer_error_t safetimer_delete(safetimer_handle_t handle) {
+  int slot_index;
+
 #if ENABLE_PARAM_CHECK
-  if (handle < 0 || handle >= MAX_TIMERS) {
+  if (!validate_handle(handle)) {
     return TIMER_ERR_INVALID;
   }
-
-  /* Check if slot is allocated */
-  if ((g_timer_pool.used_bitmap & (1U << handle)) == 0) {
-    return TIMER_ERR_NOT_FOUND;
-  }
 #endif
+
+  slot_index = DECODE_INDEX(handle);
 
   bsp_enter_critical();
 
   /* Stop timer */
-  g_timer_pool.slots[handle].active = 0;
+  g_timer_pool.slots[slot_index].active = 0;
 
-  /* Release slot */
-  g_timer_pool.used_bitmap &= ~(1U << handle);
+  /* Release slot (generation remains, preventing handle reuse) */
+  g_timer_pool.used_bitmap &= ~(1U << slot_index);
 
   bsp_exit_critical();
 
@@ -289,11 +336,20 @@ timer_error_t safetimer_delete(safetimer_handle_t handle) {
  */
 timer_error_t safetimer_set_period(safetimer_handle_t handle,
                                    uint32_t new_period_ms) {
+  int slot_index;
+
 #if ENABLE_PARAM_CHECK
   /* Validate period range */
   if (new_period_ms == 0 || new_period_ms > 0x7FFFFFFFUL) {
     return TIMER_ERR_INVALID; /* Period must be 1 ~ 2^31-1 */
   }
+
+#if BSP_TICK_TYPE_16BIT
+  /* 16-bit mode: max period is 65535ms (fixes Trap #13) */
+  if (new_period_ms > 65535UL) {
+    return TIMER_ERR_INVALID; /* Period exceeds 16-bit limit */
+  }
+#endif
 
   /* Validate handle and check if slot is allocated */
   if (!validate_handle(handle)) {
@@ -303,6 +359,8 @@ timer_error_t safetimer_set_period(safetimer_handle_t handle,
 
   bsp_tick_t current_tick;
 
+  slot_index = DECODE_INDEX(handle);
+
   /* Read BSP tick before entering the SafeTimer critical section to avoid
    * nested interrupt masking inside bsp_get_ticks(). */
   current_tick = bsp_get_ticks();
@@ -310,13 +368,13 @@ timer_error_t safetimer_set_period(safetimer_handle_t handle,
   bsp_enter_critical();
 
   /* Update period field */
-  g_timer_pool.slots[handle].period = new_period_ms;
+  g_timer_pool.slots[slot_index].period = new_period_ms;
 
   /* If timer is currently running, restart countdown with new period.
    * This is equivalent to "delete + create + start" but preserves handle.
    * Breaks phase-locking intentionally - documented trade-off. */
-  if (g_timer_pool.slots[handle].active) {
-    g_timer_pool.slots[handle].expire_time = current_tick + new_period_ms;
+  if (g_timer_pool.slots[slot_index].active) {
+    g_timer_pool.slots[slot_index].expire_time = current_tick + new_period_ms;
   }
   /* If timer is stopped, new period takes effect on next safetimer_start() */
 
@@ -365,11 +423,20 @@ timer_error_t safetimer_set_period(safetimer_handle_t handle,
  */
 timer_error_t safetimer_advance_period(safetimer_handle_t handle,
                                        uint32_t new_period_ms) {
+  int slot_index;
+
 #if ENABLE_PARAM_CHECK
   /* Validate period range */
   if (new_period_ms == 0 || new_period_ms > 0x7FFFFFFFUL) {
     return TIMER_ERR_INVALID; /* Period must be 1 ~ 2^31-1 */
   }
+
+#if BSP_TICK_TYPE_16BIT
+  /* 16-bit mode: max period is 65535ms (fixes Trap #13) */
+  if (new_period_ms > 65535UL) {
+    return TIMER_ERR_INVALID; /* Period exceeds 16-bit limit */
+  }
+#endif
 
   /* Validate handle and check if slot is allocated */
   if (!validate_handle(handle)) {
@@ -379,39 +446,41 @@ timer_error_t safetimer_advance_period(safetimer_handle_t handle,
 
   bsp_tick_t current_tick;
 
+  slot_index = DECODE_INDEX(handle);
+
   /* Read BSP tick before entering the SafeTimer critical section */
   current_tick = bsp_get_ticks();
 
   bsp_enter_critical();
 
   /* Store old period before updating */
-  uint32_t prev_period = g_timer_pool.slots[handle].period;
+  uint32_t prev_period = g_timer_pool.slots[slot_index].period;
 
   /* Update period field */
-  g_timer_pool.slots[handle].period = new_period_ms;
+  g_timer_pool.slots[slot_index].period = new_period_ms;
 
   /* Phase-locked advance: maintain timing relationship to previous expire_time
    */
-  if (g_timer_pool.slots[handle].active) {
+  if (g_timer_pool.slots[slot_index].active) {
     /* Calculate when the timer SHOULD have expired based on old period.
      * This is overflow-safe because both values are bsp_tick_t (uint32_t). */
     bsp_tick_t last_expire =
-        g_timer_pool.slots[handle].expire_time - prev_period;
+        g_timer_pool.slots[slot_index].expire_time - prev_period;
 
     /* Advance from last scheduled expiration, not current time */
-    g_timer_pool.slots[handle].expire_time = last_expire + new_period_ms;
+    g_timer_pool.slots[slot_index].expire_time = last_expire + new_period_ms;
 
     /* If coroutine execution delayed too long and new expire_time is in the
      * past, advance it to the future using REPEAT-style catch-up logic. This
      * prevents burst callbacks while maintaining zero cumulative error. */
     while (safetimer_tick_diff(current_tick,
-                               g_timer_pool.slots[handle].expire_time) >= 0) {
-      g_timer_pool.slots[handle].expire_time += new_period_ms;
+                               g_timer_pool.slots[slot_index].expire_time) >= 0) {
+      g_timer_pool.slots[slot_index].expire_time += new_period_ms;
     }
   } else {
     /* Timer not active: no previous phase to preserve, behave like set_period()
      */
-    g_timer_pool.slots[handle].expire_time = current_tick + new_period_ms;
+    g_timer_pool.slots[slot_index].expire_time = current_tick + new_period_ms;
   }
 
   bsp_exit_critical();
@@ -479,7 +548,16 @@ void safetimer_process(void) {
 
     /* Execute callback OUTSIDE critical section */
     if (should_invoke && callback != NULL) {
-      callback(user_data);
+      /* Double-check active state to prevent TOCTOU race (fixes Trap #6)
+       * Scenario: After releasing critical section, an ISR might call stop().
+       * Without this check, we'd execute callback on a stopped timer. */
+      bsp_enter_critical();
+      int still_active = g_timer_pool.slots[i].active;
+      bsp_exit_critical();
+
+      if (still_active) {
+        callback(user_data);
+      }
     }
   }
 }
@@ -491,6 +569,8 @@ void safetimer_process(void) {
  * @brief Get timer running status
  */
 timer_error_t safetimer_get_status(safetimer_handle_t handle, int *is_running) {
+  int slot_index;
+
 #if ENABLE_PARAM_CHECK
   if (!validate_handle(handle)) {
     return TIMER_ERR_INVALID;
@@ -501,8 +581,10 @@ timer_error_t safetimer_get_status(safetimer_handle_t handle, int *is_running) {
   }
 #endif
 
+  slot_index = DECODE_INDEX(handle);
+
   bsp_enter_critical();
-  *is_running = (int)g_timer_pool.slots[handle].active;
+  *is_running = (int)g_timer_pool.slots[slot_index].active;
   bsp_exit_critical();
 
   return TIMER_OK;
@@ -515,6 +597,7 @@ timer_error_t safetimer_get_remaining(safetimer_handle_t handle,
                                       uint32_t *remaining_ms) {
   bsp_tick_t current_tick;
   int32_t diff; /* Use int32_t for correct wraparound handling (ADR-005) */
+  int slot_index;
 
 #if ENABLE_PARAM_CHECK
   if (!validate_handle(handle)) {
@@ -526,9 +609,11 @@ timer_error_t safetimer_get_remaining(safetimer_handle_t handle,
   }
 #endif
 
+  slot_index = DECODE_INDEX(handle);
+
   bsp_enter_critical();
 
-  if (!g_timer_pool.slots[handle].active) {
+  if (!g_timer_pool.slots[slot_index].active) {
     /* Stopped timer */
     *remaining_ms = 0;
     bsp_exit_critical();
@@ -537,7 +622,7 @@ timer_error_t safetimer_get_remaining(safetimer_handle_t handle,
 
   current_tick = bsp_get_ticks();
   diff =
-      safetimer_tick_diff(g_timer_pool.slots[handle].expire_time, current_tick);
+      safetimer_tick_diff(g_timer_pool.slots[slot_index].expire_time, current_tick);
 
   if (diff < 0) {
     /* Already expired but not yet processed */
@@ -608,23 +693,36 @@ void safetimer_test_reset_pool(void) {
 #endif
 
 /**
- * @brief Validate timer handle
+ * @brief Validate timer handle (with generation check for ABA prevention)
  *
  * @param handle Timer handle to validate
  *
  * @return 1 if valid and allocated, 0 otherwise
  *
  * @note Internal helper - assumes ENABLE_PARAM_CHECK=1
+ * @note Validates both slot index and generation counter (fixes Trap #1)
  */
 STATIC int validate_handle(safetimer_handle_t handle) {
+  int slot_index;
+  uint8_t handle_gen;
+
+  /* Decode handle */
+  slot_index = DECODE_INDEX(handle);
+  handle_gen = DECODE_GEN(handle);
+
   /* Range check */
-  if (handle < 0 || handle >= MAX_TIMERS) {
+  if (slot_index < 0 || slot_index >= MAX_TIMERS) {
     return 0;
   }
 
   /* Allocation check */
-  if ((g_timer_pool.used_bitmap & (1U << handle)) == 0) {
+  if ((g_timer_pool.used_bitmap & (1U << slot_index)) == 0) {
     return 0;
+  }
+
+  /* Generation check (ABA prevention) */
+  if (g_timer_pool.slots[slot_index].generation != handle_gen) {
+    return 0; /* Handle is from a previous allocation cycle */
   }
 
   return 1;
@@ -707,13 +805,21 @@ STATIC void trigger_timer(int slot_index, bsp_tick_t current_tick,
     g_timer_pool.slots[slot_index].expire_time +=
         g_timer_pool.slots[slot_index].period;
 #else
-    /* Skip mode (default): coalesce missed intervals */
-    do {
-      g_timer_pool.slots[slot_index].expire_time +=
-          g_timer_pool.slots[slot_index].period;
-    } while (safetimer_tick_diff(current_tick,
-                                 g_timer_pool.slots[slot_index].expire_time) >=
-             0);
+    /* Skip mode (default): coalesce missed intervals using math instead of loop
+     * to prevent watchdog timeout in critical section (fixes Trap #2) */
+    bsp_tick_t old_expire = g_timer_pool.slots[slot_index].expire_time;
+    uint32_t period = g_timer_pool.slots[slot_index].period;
+
+    /* Calculate how many periods we're behind */
+    int32_t lag = safetimer_tick_diff(current_tick, old_expire);
+    if (lag >= 0) {
+      /* We're behind schedule - advance by N periods to catch up */
+      uint32_t missed_periods = ((uint32_t)lag / period) + 1;
+      g_timer_pool.slots[slot_index].expire_time = old_expire + (missed_periods * period);
+    } else {
+      /* Should not happen (timer not expired yet), but handle gracefully */
+      g_timer_pool.slots[slot_index].expire_time += period;
+    }
 #endif
   }
 }

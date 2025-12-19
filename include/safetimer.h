@@ -31,13 +31,27 @@ extern "C" {
 /**
  * @brief Timer handle type
  *
- * Valid handles are in range [0, MAX_TIMERS-1].
- * SAFETIMER_INVALID_HANDLE (-1) indicates an invalid or failed operation.
+ * Handles are encoded as: [generation:3bit][index:5bit]
+ * - Valid handles: 32~255 (generation 1~7, index 0~31)
+ * - SAFETIMER_INVALID_HANDLE (-1) indicates an invalid or failed operation
+ *
+ * @warning CRITICAL: Always initialize handle variables explicitly!
+ * @code
+ * // ✅ CORRECT: Explicit initialization
+ * static safetimer_handle_t my_timer = SAFETIMER_INVALID_HANDLE;
+ *
+ * // ❌ WRONG: Uninitialized (defaults to 0, which may be a valid handle!)
+ * static safetimer_handle_t my_timer;
+ * @endcode
+ *
+ * @note Generation counter prevents ABA handle reuse (v1.3.2+)
  */
 typedef int safetimer_handle_t;
 
 /**
  * @brief Invalid timer handle constant
+ *
+ * @warning Always use this constant for initialization, NOT 0!
  */
 #define SAFETIMER_INVALID_HANDLE (-1)
 
@@ -64,8 +78,26 @@ typedef enum {
  *
  * @param user_data User data pointer passed during timer creation
  *
- * @warning Callback MUST NOT create, delete, or modify other timers (ADR-003)
- * @warning Keep callback execution time minimal (< 100us recommended)
+ * @warning CRITICAL RESTRICTIONS (violating these causes system failure):
+ * @warning 1. Callback MUST NOT create, delete, or modify other timers (ADR-003)
+ * @warning 2. Callback MUST NOT call safetimer_process() (causes stack overflow, Trap #19)
+ * @warning 3. Keep execution time minimal (< 100us recommended, prevents priority inversion, Trap #5)
+ * @warning 4. user_data MUST point to static/global memory, NOT stack variables (Trap #16)
+ * @warning 5. Check resource validity if timer may be stopped from ISR (Trap #6)
+ *
+ * @par Best Practice:
+ * @code
+ * // ✅ CORRECT: Set flag only
+ * void my_callback(void *data) {
+ *     g_flag = 1;  // Fast, non-blocking
+ * }
+ *
+ * // ❌ WRONG: Slow operations
+ * void bad_callback(void *data) {
+ *     uart_send_blocking(...);  // Blocks other timers!
+ *     safetimer_process();      // Stack overflow!
+ * }
+ * @endcode
  */
 typedef void (*timer_callback_t)(void *user_data);
 
@@ -113,6 +145,27 @@ safetimer_handle_t safetimer_create(
  * @return TIMER_OK on success, error code otherwise
  * @retval TIMER_ERR_INVALID Invalid handle
  * @retval TIMER_ERR_NOT_FOUND Timer not found or deleted
+ *
+ * @warning NEVER call repeatedly in a loop! (Trap #15: Keep-Alive Starvation)
+ * @warning - Each call resets the timer countdown
+ * @warning - Timer will NEVER expire if called continuously
+ * @warning - Correct usage: Call ONCE when state changes
+ *
+ * @par Correct Usage:
+ * @code
+ * // ✅ CORRECT: Call once on state change
+ * if (button_pressed && !timer_running) {
+ *     safetimer_start(timeout_timer);
+ *     timer_running = 1;
+ * }
+ *
+ * // ❌ WRONG: Polling in loop
+ * while (1) {
+ *     if (button_pressed) {
+ *         safetimer_start(timeout_timer);  // Timer never expires!
+ *     }
+ * }
+ * @endcode
  */
 timer_error_t safetimer_start(safetimer_handle_t handle);
 
@@ -251,7 +304,30 @@ timer_error_t safetimer_advance_period(
  *
  * @note Call frequency should be >= 2x the shortest timer period
  * @note Execution time: ~10us for 8 timers @ 8MHz (O(n) algorithm)
- * @warning NEVER call from interrupt context if callbacks do I/O
+ *
+ * @warning CRITICAL: NEVER call from interrupt context! (Trap #7)
+ * @warning - All timer callbacks will execute in ISR context
+ * @warning - Blocks system until all callbacks complete
+ * @warning - May cause watchdog timeout or system freeze
+ * @warning - Correct usage: Call ONLY from main loop
+ *
+ * @warning NEVER call from timer callbacks! (Trap #19)
+ * @warning - Causes recursive stack overflow
+ * @warning - System will crash immediately
+ *
+ * @par Correct Usage:
+ * @code
+ * int main(void) {
+ *     while (1) {
+ *         safetimer_process();  // ✅ Main loop only
+ *         // ... other tasks
+ *     }
+ * }
+ *
+ * void timer_isr(void) {
+ *     safetimer_process();  // ❌ NEVER in ISR!
+ * }
+ * @endcode
  */
 void safetimer_process(void);
 

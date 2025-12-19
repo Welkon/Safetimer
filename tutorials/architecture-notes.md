@@ -176,22 +176,28 @@ static safetimer_pool_t g_timer_pool;  /* Static global */
 
 ---
 
-### Handle-Based Architecture
+### Handle-Based Architecture (v1.3.2+)
 
-**Handles** abstract timer slots:
+**Handles** use generation counter to prevent ABA reuse:
 
 ```c
-typedef uint8_t safetimer_handle_t;
+typedef int safetimer_handle_t;
 
-/* Handle → Slot mapping */
-slot_index = handle % MAX_TIMERS;
-slot_generation = handle / MAX_TIMERS;
+/* Handle encoding: [generation:3bit][index:5bit] */
+#define ENCODE_HANDLE(gen, idx) (((gen) << 5) | (idx))
+#define DECODE_INDEX(handle)    ((handle) & 0x1F)
+#define DECODE_GEN(handle)      (((handle) >> 5) & 0x07)
+
+/* Example: generation=3, index=5 → handle=101 (0x65) */
 ```
 
 **Benefits:**
-- ✅ **Invalidation safety:** Deleted handles become invalid
-- ✅ **ABA problem prevention:** Generation counter prevents reuse bugs
-- ✅ **Compact:** 1 byte handle (supports up to 32 timers)
+- ✅ **ABA problem prevention:** Generation counter (1~7) prevents reuse bugs
+- ✅ **Invalidation safety:** Deleted handles become invalid after 8 cycles
+- ✅ **Compact:** 1 byte handle (supports up to 32 timers, 7 generations)
+- ✅ **Zero runtime cost:** Encoding/decoding are simple bit operations
+
+**RAM Cost:** +1 byte per timer + 1 byte global = MAX_TIMERS + 1 bytes
 
 ---
 
@@ -325,6 +331,45 @@ void safetimer_process(void) {
 ```
 
 **Complexity:** O(MAX_TIMERS) per call
+
+---
+
+## ⚠️ Low-Power Mode Considerations
+
+### Sleep Time Compensation
+
+When MCU enters low-power mode (Sleep/Stop), hardware timers may stop counting. SafeTimer relies on `bsp_get_ticks()` monotonicity, so BSP layer must compensate for sleep time.
+
+**BSP Implementation Example:**
+
+```c
+static volatile uint32_t s_ticks = 0;
+static uint32_t s_sleep_compensation = 0;
+
+bsp_tick_t bsp_get_ticks(void) {
+    return s_ticks + s_sleep_compensation;  /* Include compensation */
+}
+
+void mcu_enter_sleep(uint32_t duration_ms) {
+    /* Enter low-power mode */
+    rtc_sleep(duration_ms);
+
+    /* Wakeup: compensate for sleep time */
+    s_sleep_compensation += duration_ms;
+}
+
+/* Alternative: Use RTC to measure actual sleep duration */
+void mcu_wakeup_handler(void) {
+    uint32_t actual_sleep = rtc_get_elapsed_ms();
+    s_sleep_compensation += actual_sleep;
+}
+```
+
+**Key Points:**
+- ✅ SafeTimer is **not** responsible for sleep compensation
+- ✅ BSP layer **must** maintain tick monotonicity
+- ✅ Use RTC or low-power timer to measure sleep duration
+- ⚠️ Failure to compensate causes timer lag after wakeup
 
 ---
 
