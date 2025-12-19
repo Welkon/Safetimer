@@ -311,6 +311,7 @@ typedef struct {
     uint8_t response[32];
     uint8_t response_len;
     uint8_t retry_count;
+    uint16_t timeout_counter;
 } uart_ctx_t;
 
 void uart_protocol_coro(void *user_data) {
@@ -321,22 +322,30 @@ void uart_protocol_coro(void *user_data) {
     while (1) {
         /* Send command */
         uart_send_command(0xA5);
-        ctx->retry_count = 0;
+        ctx->timeout_counter = 0;
 
-        /* Wait for response with timeout */
-        SAFETIMER_CORO_WAIT_UNTIL(uart_rx_ready(), 10);  /* Poll every 10ms */
+        /* Wait for response with 300ms timeout (poll every 10ms) */
+        while (ctx->timeout_counter < 30) {  /* 30 * 10ms = 300ms */
+            if (uart_rx_ready()) {
+                /* Response received */
+                ctx->response_len = uart_read(ctx->response, sizeof(ctx->response));
+                process_response(ctx->response, ctx->response_len);
+                break;
+            }
+            ctx->timeout_counter++;
+            SAFETIMER_CORO_SLEEP(10);  /* Poll every 10ms, returns here! */
+        }
 
-        if (uart_rx_ready()) {
-            /* Response received */
-            ctx->response_len = uart_read(ctx->response, sizeof(ctx->response));
-            process_response(ctx->response, ctx->response_len);
-        } else {
+        /* Check if timeout occurred */
+        if (ctx->timeout_counter >= 30) {
             /* Timeout - retry */
             ctx->retry_count++;
             if (ctx->retry_count >= 3) {
                 handle_timeout_error();
-                SAFETIMER_CORO_SLEEP(5000);  /* Wait 5s before retry */
+                ctx->retry_count = 0;
             }
+        } else {
+            ctx->retry_count = 0;  /* Success, reset retry counter */
         }
 
         SAFETIMER_CORO_SLEEP(1000);  /* Next command in 1s */
@@ -355,7 +364,7 @@ int main(void) {
     safetimer_handle_t h = safetimer_create(
         10, TIMER_MODE_REPEAT, uart_protocol_coro, &ctx
     );
-    ctx._coro_handle = h;  /* Store handle for SLEEP/WAIT_UNTIL */
+    ctx._coro_handle = h;  /* Store handle for SLEEP */
     safetimer_start(h);
 
     while (1) {
@@ -365,15 +374,32 @@ int main(void) {
 ```
 
 **What This Example Shows:**
-- **Linear flow:** Send → Wait → Process → Repeat (clear sequence)
-- **Timeout handling:** `WAIT_UNTIL` with polling, automatic timeout detection
-- **Retry logic:** Built-in retry counter with exponential backoff
-- **State preservation:** Context stores response buffer and retry count
+- **Protocol flow:** Send → Wait (with timeout) → Process → Retry → Repeat
+- **Timeout handling:** Inner `while` loop polls for 300ms (30 × 10ms)
+- **Non-blocking:** Each `SLEEP(10)` exits function, allowing other tasks to run
+- **Retry logic:** Automatic retry on timeout (max 3 attempts)
+
+**💡 Key Insight: The Inner `while` Loop is NOT Blocking!**
+
+```c
+while (ctx->timeout_counter < 30) {  // Looks like blocking loop
+    if (uart_rx_ready()) break;
+    ctx->timeout_counter++;
+    SAFETIMER_CORO_SLEEP(10);  // ← Returns from function!
+}
+```
+
+**What actually happens:**
+- **Call 1:** Send command, counter=0, check UART, `SLEEP(10)` → **return**
+- **Call 2:** Resume, counter=1, check UART, `SLEEP(10)` → **return**
+- **Call 3-30:** Same pattern, each call increments counter
+- **Call 31:** counter=30, exit loop, handle timeout
+
+**Total:** 30 function calls over 300ms (completely non-blocking)
 
 **Coroutine Macros:**
-- `SAFETIMER_CORO_SLEEP(ms)` - Sleep for specified milliseconds
-- `SAFETIMER_CORO_WAIT_UNTIL(cond, poll_ms)` - Wait until condition is true (with timeout)
-- `SAFETIMER_CORO_YIELD()` - Explicit yield
+- `SAFETIMER_CORO_SLEEP(ms)` - Sleep for specified milliseconds (exits function)
+- `SAFETIMER_CORO_YIELD()` - Explicit yield (returns immediately)
 - `SAFETIMER_CORO_RESET()` - Restart coroutine from beginning
 - `SAFETIMER_CORO_EXIT()` - Exit coroutine permanently
 
