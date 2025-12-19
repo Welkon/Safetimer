@@ -79,6 +79,17 @@ typedef struct {
  */
 static safetimer_pool_t g_timer_pool = {0};
 
+/**
+ * @brief Recursion guard flag (prevents Trap #19: Recursive Stack Overflow)
+ *
+ * Set to 1 when safetimer_process() is executing.
+ * If callback erroneously calls safetimer_process() again, the guard
+ * prevents recursion and returns immediately.
+ *
+ * RAM cost: +1 byte
+ */
+static volatile uint8_t s_processing = 0;
+
 /* ========== Handle Encoding/Decoding (ABA Prevention) ========== */
 
 /**
@@ -453,9 +464,10 @@ timer_error_t safetimer_advance_period(safetimer_handle_t handle,
 
   bsp_enter_critical();
 
-  /* Store old period and expire_time snapshot before updating */
+  /* Store old period, expire_time, and active state snapshot before updating */
   uint32_t prev_period = g_timer_pool.slots[slot_index].period;
   bsp_tick_t old_expire_snapshot = g_timer_pool.slots[slot_index].expire_time;
+  uint8_t old_active_snapshot = g_timer_pool.slots[slot_index].active;
 
   /* Update period field */
   g_timer_pool.slots[slot_index].period = new_period_ms;
@@ -488,14 +500,15 @@ timer_error_t safetimer_advance_period(safetimer_handle_t handle,
       /* Re-enter critical section to update expire_time */
       bsp_enter_critical();
 
-      /* Verify expire_time wasn't modified by ISR during calculation
-       * (fixes Stop-Start Overwrite Race). If ISR called stop+start while we
-       * were calculating, old_expire_snapshot will no longer match. */
-      if (g_timer_pool.slots[slot_index].expire_time == old_expire_snapshot) {
+      /* Verify expire_time AND active state weren't modified by ISR during calculation
+       * (fixes Stop-Start Overwrite Race + ABA variant). Double verification prevents
+       * extreme coincidence where ISR results in same expire_time value. */
+      if (g_timer_pool.slots[slot_index].expire_time == old_expire_snapshot &&
+          g_timer_pool.slots[slot_index].active == old_active_snapshot) {
         /* ISR didn't interfere, safe to update with catch-up value */
         g_timer_pool.slots[slot_index].expire_time = new_expire;
       }
-      /* else: ISR modified expire_time, keep ISR's value */
+      /* else: ISR modified timer state, keep ISR's value */
     } else {
       /* No catch-up needed, update directly */
       g_timer_pool.slots[slot_index].expire_time = new_expire;
@@ -520,10 +533,20 @@ timer_error_t safetimer_advance_period(safetimer_handle_t handle,
  * - O(n) algorithm: iterates all MAX_TIMERS slots
  * - Triggers callback outside critical section for safety
  * - Repeating timers automatically reset expire_time
+ * - Recursion guard prevents stack overflow (Trap #19)
  */
 void safetimer_process(void) {
   int i;
   bsp_tick_t current_tick;
+
+  /* Recursion guard: prevent callback from calling safetimer_process() again
+   * (fixes Trap #19: Recursive Stack Overflow). On 8-bit MCUs with ~176B RAM,
+   * even 2-3 recursions can exhaust stack and cause system reset. */
+  if (s_processing) {
+    return;  /* Already processing, silently return to prevent recursion */
+  }
+
+  s_processing = 1;  /* Mark as processing */
 
   current_tick = bsp_get_ticks();
 
@@ -583,6 +606,8 @@ void safetimer_process(void) {
       }
     }
   }
+
+  s_processing = 0;  /* Clear processing flag */
 }
 
 /* ========== Optional Query/Diagnostic APIs ========== */
@@ -838,6 +863,7 @@ STATIC void trigger_timer(int slot_index, bsp_tick_t current_tick,
     /* Snapshot values inside critical section */
     bsp_tick_t old_expire = g_timer_pool.slots[slot_index].expire_time;
     uint32_t period = g_timer_pool.slots[slot_index].period;
+    uint8_t old_active = g_timer_pool.slots[slot_index].active;
 
     /* Release critical section before expensive division */
     bsp_exit_critical();
@@ -858,14 +884,17 @@ STATIC void trigger_timer(int slot_index, bsp_tick_t current_tick,
     /* Re-enter critical section to update expire_time */
     bsp_enter_critical();
 
-    /* Verify expire_time wasn't modified by ISR during calculation
-     * (fixes Stop-Start Overwrite Race). If ISR called stop+start while we
-     * were calculating, old_expire will no longer match. In this case, discard
-     * our calculation to preserve ISR's new value. */
-    if (g_timer_pool.slots[slot_index].expire_time == old_expire) {
+    /* Verify expire_time AND active state weren't modified by ISR during calculation
+     * (fixes Stop-Start Overwrite Race + ABA variant).
+     *
+     * Double verification prevents extreme coincidence where ISR stop+start results
+     * in same expire_time value (ABA variant). Checking both expire_time and active
+     * ensures we detect any ISR interference. */
+    if (g_timer_pool.slots[slot_index].expire_time == old_expire &&
+        g_timer_pool.slots[slot_index].active == old_active) {
       g_timer_pool.slots[slot_index].expire_time = new_expire;
     }
-    /* else: ISR modified expire_time, keep ISR's value */
+    /* else: ISR modified timer state, keep ISR's value */
 #endif
   }
 }

@@ -27,7 +27,7 @@ This document catalogs all known architectural traps in SafeTimer and their fixe
 ---
 
 ### Risk #21: Stop-Start Overwrite Race
-**Status:** ✅ Fixed in v1.3.4
+**Status:** ✅ Fixed in v1.3.4, Enhanced in v1.3.5
 **Severity:** Low (rare scenario)
 
 **Problem:**
@@ -36,12 +36,33 @@ When division moved outside critical section (v1.3.3 optimization), introduced n
 2. ISR calls `stop()` then `start()`, sets new `expire_time`
 3. Main loop re-acquires lock, overwrites with old calculated value
 
-**Fix:**
+**Fix (v1.3.4):**
 - Verify `expire_time` unchanged before updating
 - If ISR modified it, discard calculation and keep ISR's value
-- **Impact:** Prevents ISR timer corruption
 
-**Code Location:** `src/safetimer.c:851-858`, `src/safetimer.c:491-498`
+**Enhancement (v1.3.5):**
+- Added `active` state verification (double-check)
+- Prevents ABA variant where ISR results in same `expire_time` value
+- **Impact:** Prevents ISR timer corruption even in extreme coincidence
+
+**Code Location:** `src/safetimer.c:885-895`, `src/safetimer.c:503-511`
+
+---
+
+### Risk #22: Recursive Stack Overflow (Runtime Guard)
+**Status:** ✅ Fixed in v1.3.5
+**Severity:** High (8-bit MCU)
+
+**Problem:**
+If callback erroneously calls `safetimer_process()` again, causes recursive stack overflow. On 8-bit MCUs with ~176B RAM (e.g., SC8F072), even 2-3 recursions exhaust stack and cause system reset.
+
+**Fix:**
+- Added runtime recursion guard (`s_processing` flag)
+- Silently returns if already processing
+- **RAM Cost:** +1 byte
+- **Impact:** Prevents stack overflow, system remains stable
+
+**Code Location:** `src/safetimer.c:91`, `src/safetimer.c:543-547`, `src/safetimer.c:608`
 
 ---
 
@@ -327,16 +348,18 @@ On 8-bit MCU, reading 16/32-bit tick counter without critical section may read c
 
 | Category | Count | RAM Cost | Performance Impact |
 |----------|-------|----------|-------------------|
-| Code Fixes | 8 | +9 bytes | Interrupt latency: 150μs → <10μs |
+| Code Fixes | 9 | +10 bytes | Interrupt latency: 150μs → <10μs |
 | Documentation | 14 | 0 bytes | - |
-| **Total** | **22** | **+9 bytes** | **Significantly improved** |
+| **Total** | **23** | **+10 bytes** | **Significantly improved** |
 
-**All traps fixed or documented in v1.3.4.**
+**All traps fixed or documented in v1.3.5.**
 
-### Key Improvements in v1.3.3-v1.3.4
+### Key Improvements in v1.3.3-v1.3.5
 - ✅ **Critical Section Optimization:** Division moved outside locks (v1.3.3)
 - ✅ **Interrupt Latency:** Reduced from 150μs to <10μs (8-bit MCU)
 - ✅ **Race Condition Fix:** Stop-Start overwrite prevention (v1.3.4)
+- ✅ **ABA Variant Fix:** Double verification with active state (v1.3.5)
+- ✅ **Recursion Guard:** Runtime stack overflow prevention (v1.3.5)
 - ✅ **Hard Real-Time Safe:** Suitable for high-frequency PWM and time-critical tasks
 
 ---
