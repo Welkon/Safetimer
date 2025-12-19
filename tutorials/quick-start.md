@@ -300,7 +300,7 @@ SafeTimer supports **stackless coroutines** (Protothread-style) for linear async
 #include "safetimer_coro.h"  // Enables coroutine macros
 ```
 
-#### Quick Example
+#### Quick Example: UART Protocol with Timeout
 
 ```c
 #include "safetimer.h"
@@ -308,35 +308,52 @@ SafeTimer supports **stackless coroutines** (Protothread-style) for linear async
 
 typedef struct {
     SAFETIMER_CORO_CONTEXT;  /* Must be first member */
-    int counter;
-} my_coro_ctx_t;
+    uint8_t response[32];
+    uint8_t response_len;
+    uint8_t retry_count;
+} uart_ctx_t;
 
-void led_blink_coro(void *user_data) {
-    my_coro_ctx_t *ctx = (my_coro_ctx_t *)user_data;
+void uart_protocol_coro(void *user_data) {
+    uart_ctx_t *ctx = (uart_ctx_t *)user_data;
 
     SAFETIMER_CORO_BEGIN(ctx);
 
     while (1) {
-        led_on();
-        SAFETIMER_CORO_SLEEP(100);   /* LED on for 100ms */
+        /* Send command */
+        uart_send_command(0xA5);
+        ctx->retry_count = 0;
 
-        led_off();
-        SAFETIMER_CORO_SLEEP(900);   /* LED off for 900ms */
+        /* Wait for response with timeout */
+        SAFETIMER_CORO_WAIT_UNTIL(uart_rx_ready(), 10);  /* Poll every 10ms */
 
-        ctx->counter++;
+        if (uart_rx_ready()) {
+            /* Response received */
+            ctx->response_len = uart_read(ctx->response, sizeof(ctx->response));
+            process_response(ctx->response, ctx->response_len);
+        } else {
+            /* Timeout - retry */
+            ctx->retry_count++;
+            if (ctx->retry_count >= 3) {
+                handle_timeout_error();
+                SAFETIMER_CORO_SLEEP(5000);  /* Wait 5s before retry */
+            }
+        }
+
+        SAFETIMER_CORO_SLEEP(1000);  /* Next command in 1s */
     }
 
     SAFETIMER_CORO_END();
 }
 
 int main(void) {
-    static my_coro_ctx_t ctx = {0};
+    static uart_ctx_t ctx = {0};
 
     init_timer0();
+    init_uart();
 
     /* Create coroutine timer (MUST use TIMER_MODE_REPEAT) */
     safetimer_handle_t h = safetimer_create(
-        10, TIMER_MODE_REPEAT, led_blink_coro, &ctx
+        10, TIMER_MODE_REPEAT, uart_protocol_coro, &ctx
     );
     ctx._coro_handle = h;  /* Store handle for SLEEP/WAIT_UNTIL */
     safetimer_start(h);
@@ -347,21 +364,27 @@ int main(void) {
 }
 ```
 
+**What This Example Shows:**
+- **Linear flow:** Send → Wait → Process → Repeat (clear sequence)
+- **Timeout handling:** `WAIT_UNTIL` with polling, automatic timeout detection
+- **Retry logic:** Built-in retry counter with exponential backoff
+- **State preservation:** Context stores response buffer and retry count
+
 **Coroutine Macros:**
 - `SAFETIMER_CORO_SLEEP(ms)` - Sleep for specified milliseconds
-- `SAFETIMER_CORO_WAIT_UNTIL(cond, poll_ms)` - Wait until condition is true
+- `SAFETIMER_CORO_WAIT_UNTIL(cond, poll_ms)` - Wait until condition is true (with timeout)
 - `SAFETIMER_CORO_YIELD()` - Explicit yield
 - `SAFETIMER_CORO_RESET()` - Restart coroutine from beginning
 - `SAFETIMER_CORO_EXIT()` - Exit coroutine permanently
 
 **✅ Good Use Cases:**
-- UART communication with timeouts
-- Sensor polling sequences (init → warmup → read)
-- Multi-step initialization flows
+- **Protocol handlers:** UART, I2C, SPI with timeouts and retries
+- **Sensor sequences:** Power on → warmup → read → process
+- **Multi-step flows:** Initialization, calibration, data transmission
 
 **❌ Avoid For:**
-- Simple periodic tasks (use callbacks)
-- Complex event-driven logic (use StateSmith FSM)
+- Simple periodic tasks (use callbacks: LED blink, heartbeat)
+- Complex branching logic (use StateSmith FSM: button states, UI flows)
 
 See [Coroutines Tutorial](coroutines.md) for complete guide with semaphores.
 
