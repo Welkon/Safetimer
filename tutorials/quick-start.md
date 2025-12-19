@@ -35,6 +35,8 @@ Create `safetimer_bsp.c` with these 3 functions:
 #include "bsp.h"
 
 static volatile bsp_tick_t s_ticks = 0;
+static volatile uint8_t s_critical_nesting = 0;
+static volatile uint8_t s_saved_interrupt_state = 0;
 
 /* Called by hardware timer interrupt every 1ms */
 void timer_isr(void) {
@@ -42,24 +44,67 @@ void timer_isr(void) {
 }
 
 bsp_tick_t bsp_get_ticks(void) {
-    return s_ticks;
+    bsp_tick_t ticks;
+    uint8_t saved_state = EA;  /* Save current interrupt state */
+    EA = 0;                    /* Disable for atomic read */
+    ticks = s_ticks;
+    EA = saved_state;          /* Restore original state */
+    return ticks;
 }
 
 void bsp_enter_critical(void) {
+    uint8_t ea_state = EA;
     EA = 0;  /* Disable interrupts */
+
+    if (s_critical_nesting == 0) {
+        s_saved_interrupt_state = ea_state;  /* Save state on first entry */
+    }
+    s_critical_nesting++;
 }
 
 void bsp_exit_critical(void) {
-    EA = 1;  /* Enable interrupts */
+    if (s_critical_nesting > 0) {
+        EA = 0;  /* Ensure atomic access */
+        s_critical_nesting--;
+
+        if (s_critical_nesting == 0) {
+            EA = s_saved_interrupt_state;  /* Restore original state */
+        }
+    }
 }
 ```
 
 **BSP Function Requirements:**
-- `bsp_get_ticks()`: Return milliseconds since boot (32-bit tick counter)
-- `bsp_enter_critical()`: Disable interrupts (atomic operations)
-- `bsp_exit_critical()`: Enable interrupts
+- `bsp_get_ticks()`: Atomic read of tick counter (preserves interrupt state)
+- `bsp_enter_critical()`: Disable interrupts with nesting support
+- `bsp_exit_critical()`: Restore interrupts (only on outermost exit)
 
-See [`examples/`](../examples/) for complete BSP implementations.
+**Key Implementation Details:**
+- **Nesting support:** `s_critical_nesting` tracks depth, allows nested calls
+- **State preservation:** `s_saved_interrupt_state` restores original state (not always "enable")
+- **Atomic reads:** `bsp_get_ticks()` protects 32-bit reads on 8-bit MCUs
+
+**Why nesting matters:** Real-world scenarios where nesting occurs:
+1. **User calls SafeTimer API from callback:**
+   ```c
+   void my_callback(void *data) {
+       bsp_enter_critical();  // User's critical section
+       safetimer_delete(h);   // SafeTimer enters critical again
+       bsp_exit_critical();
+   }
+   ```
+2. **User calls SafeTimer API from ISR:**
+   ```c
+   void uart_isr(void) {
+       bsp_enter_critical();
+       safetimer_start(timeout_handle);  // Nested critical section
+       bsp_exit_critical();
+   }
+   ```
+
+Without nesting support, the inner `bsp_exit_critical()` would incorrectly re-enable interrupts while still in the outer critical section.
+
+See [`examples/sc8f072/bsp_sc8f072.c`](../examples/sc8f072/bsp_sc8f072.c) for production-ready implementation with detailed comments.
 
 ---
 
