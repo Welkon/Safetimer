@@ -1,102 +1,33 @@
-# Use Cases & Best Practices
+# Best Practices & Anti-Patterns
 
-This guide covers common SafeTimer usage patterns and anti-patterns.
+**Prerequisites:** Read [Quick Start Guide](quick-start.md) for basic usage patterns.
 
----
-
-## ✅ What SafeTimer is Good For
-
-SafeTimer excels at **asynchronous timeout management** and **periodic task scheduling**.
-
-### 1. Periodic Tasks
-
-LED blinking, heartbeat packets, watchdog feeding:
-
-```c
-/* LED blinking every 500ms */
-safetimer_handle_t h_led = safetimer_create(
-    500, TIMER_MODE_REPEAT, led_blink, NULL
-);
-
-/* Heartbeat packet every 1 second */
-safetimer_handle_t h_heartbeat = safetimer_create(
-    1000, TIMER_MODE_REPEAT, send_heartbeat, NULL
-);
-
-safetimer_start(h_led);
-safetimer_start(h_heartbeat);
-```
+This guide covers **advanced patterns**, **anti-patterns**, and **design guidelines**.
 
 ---
 
-### 2. Communication Timeout
+## 🎯 Advanced Patterns
 
-Send data and wait for ACK with timeout:
+### Pattern 1: Dynamic Timeout Cancellation
+
+Cancel timeout when response arrives:
 
 ```c
 static safetimer_handle_t h_timeout;
 
 void send_packet(void) {
     uart_send(data);
-
-    /* Create 3-second timeout */
-    h_timeout = safetimer_create(
-        3000, TIMER_MODE_ONE_SHOT, timeout_cb, NULL
-    );
+    h_timeout = safetimer_create(3000, TIMER_MODE_ONE_SHOT, timeout_cb, NULL);
     safetimer_start(h_timeout);
 }
 
 void on_ack_received(void) {
-    /* Cancel timeout */
-    safetimer_delete(h_timeout);
+    safetimer_delete(h_timeout);  /* Cancel timeout */
     h_timeout = SAFETIMER_INVALID_HANDLE;
 }
-
-void timeout_cb(void *data) {
-    /* Handle timeout */
-    retry_send();
-}
 ```
 
----
-
-### 3. Multi-Stage State Machines
-
-Power-on sequence with delays:
-
-```c
-void power_on(void) {
-    /* Stage 1: Wait 2 seconds before init */
-    h1 = safetimer_create(
-        2000, TIMER_MODE_ONE_SHOT, init_sensor_cb, NULL
-    );
-    safetimer_start(h1);
-}
-
-void init_sensor_cb(void *data) {
-    init_sensor();
-
-    /* Stage 2: Wait 5 seconds before comm */
-    h2 = safetimer_create(
-        5000, TIMER_MODE_ONE_SHOT, start_comm_cb, NULL
-    );
-    safetimer_start(h2);
-}
-
-void start_comm_cb(void *data) {
-    start_communication();
-}
-```
-
----
-
-### 4. Delayed Actions
-
-Turn off LED after 10 seconds:
-
-```c
-void led_auto_off(void) {
-    led_on();
+### Pattern 2: Retry with Exponential Backoff
 
     h_off = safetimer_create(
         10000, TIMER_MODE_ONE_SHOT, led_off_cb, NULL
@@ -327,38 +258,7 @@ void retry_cb(void *data) {
 
 ---
 
-### Pattern 3: Cascaded Timers
-
-```c
-void timer1_cb(void *data) {
-    stage1_complete();
-
-    /* Start next stage */
-    h2 = safetimer_create(1000, TIMER_MODE_ONE_SHOT, timer2_cb, NULL);
-    safetimer_start(h2);
-}
-
-void timer2_cb(void *data) {
-    stage2_complete();
-
-    /* Start final stage */
-    h3 = safetimer_create(500, TIMER_MODE_ONE_SHOT, timer3_cb, NULL);
-    safetimer_start(h3);
-}
-```
-
----
-
-### Pattern 4: Conditional Timer Start
-
-```c
-h = safetimer_create(1000, TIMER_MODE_ONE_SHOT, callback, NULL);
-
-/* Don't start immediately - wait for condition */
-if (system_ready()) {
-    safetimer_start(h);
-}
-```
+**Note:** Basic patterns (cascaded timers, conditional start) are covered in [Quick Start](quick-start.md).
 
 ---
 

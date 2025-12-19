@@ -1,57 +1,12 @@
 # Coroutines Tutorial (v1.3.0+)
 
-SafeTimer v1.3.0 introduces **stackless coroutines** (Protothread-style) for linear async programming, perfect for UART timeouts, sensor polling, and state machines.
+**Prerequisites:** Read [Quick Start Guide](quick-start.md) first for basic coroutine usage.
 
-## 🚀 Quick Setup
-
-**No configuration needed** - coroutines are enabled by including the header:
-
-```c
-#include "safetimer.h"
-#include "safetimer_coro.h"  // Enables coroutine macros
-```
-
-That's it! No compile flags, no config changes. The coroutine macros are header-only.
+This tutorial covers **advanced coroutine features**: semaphores, StateSmith integration, and complex patterns.
 
 ---
 
-## 🎯 Why Coroutines?
-
-Traditional callback-based timers require splitting logic across multiple functions:
-
-```c
-/* ❌ Callback style: logic split across functions */
-void step1_callback(void *data) {
-    sensor_init();
-    safetimer_handle_t h2 = safetimer_create(2000, TIMER_MODE_ONE_SHOT, step2_callback, NULL);
-    safetimer_start(h2);
-}
-
-void step2_callback(void *data) {
-    sensor_read();
-    safetimer_handle_t h3 = safetimer_create(1000, TIMER_MODE_ONE_SHOT, step3_callback, NULL);
-    safetimer_start(h3);
-}
-```
-
-**Coroutines enable linear code flow:**
-
-```c
-/* ✅ Coroutine style: sequential logic */
-SAFETIMER_CORO_BEGIN(ctx);
-    sensor_init();
-    SAFETIMER_CORO_SLEEP(2000);
-
-    sensor_read();
-    SAFETIMER_CORO_SLEEP(1000);
-
-    process_data();
-SAFETIMER_CORO_END();
-```
-
----
-
-## 📚 Complete Example
+## 📚 Advanced Example: Multi-Task Coordination
 
 ```c
 #include "safetimer.h"
@@ -107,64 +62,24 @@ int main(void) {
 }
 ```
 
+**Note:** Basic coroutine macros (`SLEEP`, `YIELD`, `RESET`, `EXIT`) are covered in [Quick Start](quick-start.md#model-b-coroutines-v130).
+
 ---
 
-## 🛠️ Coroutine Macros
+## 🛠️ Advanced Macro: SAFETIMER_CORO_YIELD()
 
-### SAFETIMER_CORO_SLEEP(ms)
-
-Sleep for specified milliseconds (zero cumulative drift, v1.3.1+).
-
-```c
-SAFETIMER_CORO_BEGIN(ctx);
-    led_on();
-    SAFETIMER_CORO_SLEEP(100);   /* Sleep 100ms */
-    led_off();
-    SAFETIMER_CORO_SLEEP(900);   /* Sleep 900ms */
-SAFETIMER_CORO_END();
-```
-
-### SAFETIMER_CORO_WAIT_UNTIL(condition, poll_ms)
-
-Wait until condition becomes true, polling every `poll_ms` milliseconds.
-
-```c
-SAFETIMER_CORO_BEGIN(ctx);
-    uart_send(cmd);
-    SAFETIMER_CORO_WAIT_UNTIL(uart_rx_ready(), 10);  /* Poll every 10ms */
-    data = uart_read();
-SAFETIMER_CORO_END();
-```
-
-### SAFETIMER_CORO_YIELD()
-
-Explicit yield control (returns immediately, resumes on next timer callback).
+Use `YIELD()` for cooperative multitasking within long operations:
 
 ```c
 SAFETIMER_CORO_BEGIN(ctx);
     for (int i = 0; i < 100; i++) {
         process_chunk(i);
-        SAFETIMER_CORO_YIELD();  /* Yield after each chunk */
+        SAFETIMER_CORO_YIELD();  /* Yield after each chunk, allows other tasks */
     }
 SAFETIMER_CORO_END();
 ```
 
-### SAFETIMER_CORO_RESET()
-
-Restart coroutine from beginning.
-
-```c
-SAFETIMER_CORO_BEGIN(ctx);
-    if (error_occurred()) {
-        SAFETIMER_CORO_RESET();  /* Restart from top */
-    }
-    /* Normal flow */
-SAFETIMER_CORO_END();
-```
-
-### SAFETIMER_CORO_EXIT()
-
-Exit coroutine permanently (stops timer).
+**Use case:** Processing large data buffers without blocking other timers.
 
 ```c
 SAFETIMER_CORO_BEGIN(ctx);
@@ -334,36 +249,11 @@ See [`examples/coroutine_demo/`](../examples/coroutine_demo/) for complete mixed
 
 ## 🎨 StateSmith Integration
 
-SafeTimer can serve as the **clock source** for StateSmith-generated state machines, providing precise timing for event-driven FSMs.
+**Prerequisites:** Read [Quick Start - StateSmith FSM](quick-start.md#model-c-statesmith-fsm-recommended-for-most-apps) for basic integration.
 
-### What is StateSmith?
+This section covers **advanced patterns**: FSM + Coroutine combinations for complex protocols.
 
-[StateSmith](https://github.com/StateSmith/StateSmith) is a code generator that converts UML state diagrams into efficient C code. It's perfect for:
-- Protocol implementations (UART, I2C, SPI)
-- UI state management
-- Complex event-driven logic (>5 states)
-
-### Integration Pattern
-
-**Step 1: Define State Machine**
-
-StateSmith uses UML state diagrams to generate C code. See the [official documentation](https://github.com/StateSmith/StateSmith/wiki/Behaviors) for syntax and examples.
-
-**Example state machine definition:**
-- Define states (Idle, Connecting, Connected)
-- Define transitions with events and guards
-- Add entry/exit actions and internal behaviors
-
-**Step 2: Generate C Code with StateSmith**
-
-Use StateSmith CLI to generate C code. See [CLI Usage](https://github.com/StateSmith/StateSmith/wiki/CLI:-Usage) for details.
-
-```bash
-statesmith run --file protocol.csx
-# Generates: protocol_fsm.h, protocol_fsm.c
-```
-
-**Step 3: Integrate with SafeTimer**
+### Advanced Pattern: FSM with Coroutine Actions
 
 ```c
 #include "safetimer.h"

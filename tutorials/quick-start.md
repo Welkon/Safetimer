@@ -404,13 +404,17 @@ while (ctx->timeout_counter < 30) {  // Looks like blocking loop
 - `SAFETIMER_CORO_EXIT()` - Exit coroutine permanently
 
 **✅ Good Use Cases:**
-- **Protocol handlers:** UART, I2C, SPI with timeouts and retries
+- **Linear protocol sequences:** Send → Wait → Retry loop (within a single state)
 - **Sensor sequences:** Power on → warmup → read → process
 - **Multi-step flows:** Initialization, calibration, data transmission
 
 **❌ Avoid For:**
 - Simple periodic tasks (use callbacks: LED blink, heartbeat)
-- Complex branching logic (use StateSmith FSM: button states, UI flows)
+- Protocol state management (use StateSmith FSM: connection states, error handling)
+
+**💡 Protocol Tip:** Complex protocols often need **both** coroutines AND FSM:
+- **FSM manages states:** Idle → Connecting → Connected → Error
+- **Coroutine handles sequences:** Send-wait-retry logic within each state
 
 See [Coroutines Tutorial](coroutines.md) for complete guide with semaphores.
 
@@ -480,8 +484,8 @@ int main(void) {
 ```
 
 **✅ Good Use Cases (Most Applications!):**
-- **Button handling:** Debounce, single/double/long press detection (even simple debounce is clearer as FSM)
-- **Protocol handlers:** UART, I2C, SPI communication with timeouts
+- **Button handling:** Debounce, single/double/long press detection
+- **Protocol state management:** Connection states (Idle → Connecting → Connected → Error)
 - **UI flows:** Menu navigation, screen transitions, user interactions
 - **Device control:** Power management, mode switching, error recovery
 - **Simple logic:** Even 2-3 state logic (idle/active/error) benefits from FSM clarity
@@ -496,6 +500,19 @@ Result: Clear, testable, no hidden bugs
 **❌ Avoid For:**
 - Pure periodic tasks with no state (use callbacks: LED blink, heartbeat)
 - Strictly linear sequences (use coroutines: sensor init → read → transmit)
+
+**💡 FSM + Coroutine Combo:** Complex protocols often use both:
+
+| Component | Responsibility | Example |
+|-----------|---------------|---------|
+| **FSM** | State management | Idle → Connecting → Connected → Error |
+| **Coroutine** | Sequence within state | In "Connecting" state: Send SYN → Wait ACK → Retry |
+| **Callback** | Periodic tasks | Heartbeat, status LED |
+
+**Real-world combinations:**
+- **MQTT Client:** FSM (connection states) + Coroutine (publish/subscribe sequences) + Callback (keepalive)
+- **Modbus RTU:** FSM (master/slave states) + Coroutine (request-response with timeout) + Callback (watchdog)
+- **HTTP Client:** FSM (connection lifecycle) + Coroutine (request-response-retry) + Callback (connection timeout)
 
 See [Coroutines Tutorial - StateSmith Integration](coroutines.md#statesmith-integration) for complete examples.
 
