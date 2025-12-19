@@ -19,9 +19,29 @@ This document catalogs all known architectural traps in SafeTimer and their fixe
 **Fix:**
 - Moved division outside critical section
 - Snapshot values, release lock, calculate, re-acquire lock
+- Added verification to prevent Stop-Start overwrite race (v1.3.4)
 - **Impact:** Interrupt latency reduced from 150μs to <10μs
 
-**Code Location:** `src/safetimer.c:815-837`, `src/safetimer.c:479-490`
+**Code Location:** `src/safetimer.c:815-858`, `src/safetimer.c:479-498`
+
+---
+
+### Risk #21: Stop-Start Overwrite Race
+**Status:** ✅ Fixed in v1.3.4
+**Severity:** Low (rare scenario)
+
+**Problem:**
+When division moved outside critical section (v1.3.3 optimization), introduced new race:
+1. Main loop snapshots `expire_time`, releases lock
+2. ISR calls `stop()` then `start()`, sets new `expire_time`
+3. Main loop re-acquires lock, overwrites with old calculated value
+
+**Fix:**
+- Verify `expire_time` unchanged before updating
+- If ISR modified it, discard calculation and keep ISR's value
+- **Impact:** Prevents ISR timer corruption
+
+**Code Location:** `src/safetimer.c:851-858`, `src/safetimer.c:491-498`
 
 ---
 
@@ -307,15 +327,16 @@ On 8-bit MCU, reading 16/32-bit tick counter without critical section may read c
 
 | Category | Count | RAM Cost | Performance Impact |
 |----------|-------|----------|-------------------|
-| Code Fixes | 7 | +9 bytes | Interrupt latency: 150μs → <10μs |
+| Code Fixes | 8 | +9 bytes | Interrupt latency: 150μs → <10μs |
 | Documentation | 14 | 0 bytes | - |
-| **Total** | **21** | **+9 bytes** | **Significantly improved** |
+| **Total** | **22** | **+9 bytes** | **Significantly improved** |
 
-**All traps fixed or documented in v1.3.3.**
+**All traps fixed or documented in v1.3.4.**
 
-### Key Improvements in v1.3.3
-- ✅ **Critical Section Optimization:** Division moved outside locks
+### Key Improvements in v1.3.3-v1.3.4
+- ✅ **Critical Section Optimization:** Division moved outside locks (v1.3.3)
 - ✅ **Interrupt Latency:** Reduced from 150μs to <10μs (8-bit MCU)
+- ✅ **Race Condition Fix:** Stop-Start overwrite prevention (v1.3.4)
 - ✅ **Hard Real-Time Safe:** Suitable for high-frequency PWM and time-critical tasks
 
 ---

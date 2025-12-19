@@ -453,8 +453,9 @@ timer_error_t safetimer_advance_period(safetimer_handle_t handle,
 
   bsp_enter_critical();
 
-  /* Store old period before updating */
+  /* Store old period and expire_time snapshot before updating */
   uint32_t prev_period = g_timer_pool.slots[slot_index].period;
+  bsp_tick_t old_expire_snapshot = g_timer_pool.slots[slot_index].expire_time;
 
   /* Update period field */
   g_timer_pool.slots[slot_index].period = new_period_ms;
@@ -464,8 +465,7 @@ timer_error_t safetimer_advance_period(safetimer_handle_t handle,
   if (g_timer_pool.slots[slot_index].active) {
     /* Calculate when the timer SHOULD have expired based on old period.
      * This is overflow-safe because both values are bsp_tick_t (uint32_t). */
-    bsp_tick_t last_expire =
-        g_timer_pool.slots[slot_index].expire_time - prev_period;
+    bsp_tick_t last_expire = old_expire_snapshot - prev_period;
 
     /* Advance from last scheduled expiration, not current time */
     bsp_tick_t new_expire = last_expire + new_period_ms;
@@ -487,9 +487,19 @@ timer_error_t safetimer_advance_period(safetimer_handle_t handle,
 
       /* Re-enter critical section to update expire_time */
       bsp_enter_critical();
-    }
 
-    g_timer_pool.slots[slot_index].expire_time = new_expire;
+      /* Verify expire_time wasn't modified by ISR during calculation
+       * (fixes Stop-Start Overwrite Race). If ISR called stop+start while we
+       * were calculating, old_expire_snapshot will no longer match. */
+      if (g_timer_pool.slots[slot_index].expire_time == old_expire_snapshot) {
+        /* ISR didn't interfere, safe to update with catch-up value */
+        g_timer_pool.slots[slot_index].expire_time = new_expire;
+      }
+      /* else: ISR modified expire_time, keep ISR's value */
+    } else {
+      /* No catch-up needed, update directly */
+      g_timer_pool.slots[slot_index].expire_time = new_expire;
+    }
   } else {
     /* Timer not active: no previous phase to preserve, behave like set_period()
      */
@@ -847,7 +857,15 @@ STATIC void trigger_timer(int slot_index, bsp_tick_t current_tick,
 
     /* Re-enter critical section to update expire_time */
     bsp_enter_critical();
-    g_timer_pool.slots[slot_index].expire_time = new_expire;
+
+    /* Verify expire_time wasn't modified by ISR during calculation
+     * (fixes Stop-Start Overwrite Race). If ISR called stop+start while we
+     * were calculating, old_expire will no longer match. In this case, discard
+     * our calculation to preserve ISR's new value. */
+    if (g_timer_pool.slots[slot_index].expire_time == old_expire) {
+      g_timer_pool.slots[slot_index].expire_time = new_expire;
+    }
+    /* else: ISR modified expire_time, keep ISR's value */
 #endif
   }
 }
