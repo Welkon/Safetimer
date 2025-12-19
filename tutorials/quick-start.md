@@ -63,9 +63,15 @@ See [`examples/`](../examples/) for complete BSP implementations.
 
 ---
 
-## Step 3: Choose Your Programming Model
+## Step 3: Understanding Programming Models
 
-SafeTimer supports **three programming models**. Choose based on your task complexity:
+SafeTimer supports **three complementary programming models**. They work together - most applications use all three for different tasks:
+
+- **Callbacks** for stateless periodic tasks
+- **Coroutines** for linear sequences
+- **StateSmith FSM** for state-driven logic
+
+**Key Point:** These are **tools in your toolbox**, not mutually exclusive choices. Pick the right tool for each task.
 
 ### 🎯 Decision Flowchart
 
@@ -73,14 +79,14 @@ SafeTimer supports **three programming models**. Choose based on your task compl
 flowchart TD
     Start([What are you building?])
 
-    Start --> Simple[Simple Periodic Task<br/>LED blink, Heartbeat, Status LED]
-    Start --> Sequential[Sequential Delays<br/>Sensor polling, UART timeout]
-    Start --> Complex[Event-driven Logic<br/>Protocol FSM, UI flows, >5 states]
+    Start --> Simple[Pure Periodic Task<br/>LED blink, Heartbeat<br/>No state tracking needed]
+    Start --> Sequential[Linear Sequence<br/>Sensor: init → warmup → read<br/>Multiple steps, no branching]
+    Start --> StateMachine[Has States & Events<br/>Button press, Protocol handler<br/>UI flow, Device modes]
     Start --> Mixed[Multiple Task Types<br/>IoT device, Industrial controller]
 
     Simple --> ModelA[✅ Use Callback Timers]
     Sequential --> ModelB[✅ Use Coroutines]
-    Complex --> ModelC[✅ Use StateSmith FSM]
+    StateMachine --> ModelC[✅ Use StateSmith FSM]
     Mixed --> ModelMix[✅ Mix Models]
 
     ModelA --> ImplA[See Model A below]
@@ -95,19 +101,24 @@ flowchart TD
     style Start fill:#FFE4B5,stroke:#333,stroke-width:2px
 ```
 
-### 📊 Quick Comparison
+### 📊 Tool Selection Guide
 
-| Model | Best For | Example | Complexity |
-|-------|----------|---------|------------|
-| **Callback Timers** | Periodic tasks | LED blink, heartbeat | ⭐ Simple |
-| **Coroutines** | Sequential delays | Sensor polling, UART timeout | ⭐⭐ Medium |
-| **StateSmith FSM** | State machines | Protocol handlers, UI flows | ⭐⭐⭐ Advanced |
+| Tool | Solves | Example | Typical Usage |
+|------|--------|---------|---------------|
+| **Callback Timers** | Stateless periodic actions | LED blink, heartbeat | ~20% of tasks |
+| **Coroutines** | Linear multi-step sequences | Sensor: init → warmup → read | ~30% of tasks |
+| **StateSmith FSM** | State & event handling | Button press, protocol, UI | ~50% of tasks |
+
+**💡 Reality Check:** Most real applications use **all three together**. A typical IoT device might have:
+- 2-3 callback timers (heartbeat, status LED)
+- 1-2 coroutines (sensor polling, data transmission)
+- 2-5 state machines (button handling, protocol, power management)
 
 ---
 
-### 🎨 When to Mix Models
+### 🎨 Combining Models (The Normal Way)
 
-**You can combine all three models in one application!** Each timer is independent, so different tasks can use different programming styles.
+**Mixing models is not "advanced" - it's the standard approach.** Each timer is independent, so you naturally use the right tool for each task.
 
 #### Mixed-Mode Example
 
@@ -137,24 +148,31 @@ int main(void) {
 }
 ```
 
-#### When to Mix
+#### Real-World Examples
 
-| Scenario | Recommended Mix | Rationale |
-|----------|----------------|-----------|
-| **IoT Device** | Callbacks + Coroutines + FSM | Heartbeat (callback), sensor polling (coroutine), network protocol (FSM) |
-| **Industrial Controller** | Callbacks + FSM | Status LED (callback), control logic (FSM) |
-| **Sensor Node** | Callbacks + Coroutines | Heartbeat (callback), multi-step sensor reading (coroutine) |
-| **Simple Appliance** | Callbacks only | All tasks are simple periodic operations |
+| Application Type | Natural Tool Mix | Why Each Tool? |
+|------------------|------------------|----------------|
+| **IoT Device** | All three | Heartbeat (callback), sensor polling (coroutine), network protocol (FSM) |
+| **Industrial Controller** | Callbacks + FSM | Status LED (callback), control logic & safety interlocks (FSM) |
+| **Smart Sensor** | Coroutines + FSM | Sensor sequence (coroutine), power modes & button (FSM) |
+| **Simple Appliance** | Callbacks + FSM | Timer display (callback), user interface (FSM) |
 
-**💡 Pro Tip:** Start with callbacks for everything, then upgrade specific tasks to coroutines/FSM as complexity grows. See [Coroutines Tutorial](coroutines.md#mixed-mode-architecture) for detailed examples.
+**💡 Design Approach:**
+1. Start by identifying your tasks
+2. Pick the natural tool for each task
+3. Don't force everything into one model
+
+See [Coroutines Tutorial](coroutines.md#mixed-mode-architecture) for detailed examples.
 
 ---
 
-## Step 4: Implement Your Chosen Model
+## Step 4: Implementation Examples
 
-### Model A: Callback Timers (Most Common)
+Below are examples for each model. Remember: you'll typically use multiple models in one application.
 
-**Use when:** Simple periodic tasks without complex state.
+### Model A: Callback Timers
+
+**Use when:** Stateless periodic actions - no state tracking needed.
 
 #### Basic Usage (Core API)
 
@@ -176,6 +194,11 @@ int main(void) {
         led_callback,            /* callback */
         NULL                     /* user_data */
     );
+
+    if (led_timer == SAFETIMER_INVALID_HANDLE) {
+        /* Handle error: timer pool full */
+        error_handler();
+    }
 
     safetimer_start(led_timer);
 
@@ -223,7 +246,7 @@ See [`examples/helpers_demo/`](../examples/helpers_demo/) for detailed compariso
 
 ### Model B: Coroutines (v1.3.0+)
 
-**Use when:** Linear sequences with delays (sensor init → warmup → read → transmit).
+**Use when:** Linear multi-step sequences with delays between steps.
 
 SafeTimer supports **stackless coroutines** (Protothread-style) for linear async programming. Perfect for UART timeouts, sensor polling, and multi-step initialization.
 
@@ -294,31 +317,31 @@ See [Coroutines Tutorial](coroutines.md) for complete guide with semaphores.
 
 ---
 
-### Model C: StateSmith FSM (Advanced)
+### Model C: StateSmith FSM (Recommended for Most Apps)
 
-**Use when:** Complex event-driven logic with multiple states (>5 states, protocol handlers, UI flows).
+**Use when:** Any logic with states and events - from simple button debounce to complex protocols.
+
+**Why FSM?** State machines make code **self-documenting** and **bug-resistant**. Even 2-3 state logic is clearer as FSM than scattered if-else.
 
 [StateSmith](https://github.com/StateSmith/StateSmith) generates efficient C code from UML state diagrams. SafeTimer provides the **clock source** for FSM tick events.
 
 #### Integration Pattern
 
-**Step 1: Define State Machine (PlantUML)**
+**Step 1: Define State Machine**
 
-```plantuml
-@startuml
-[*] --> Idle
+StateSmith uses UML state diagrams to generate C code. See the [official documentation](https://github.com/StateSmith/StateSmith/wiki/Behaviors) for syntax and examples.
 
-Idle --> Connecting : connect()
-Connecting --> Connected : ack_received [timeout < 3000ms]
-Connecting --> Idle : timeout [timeout >= 3000ms]
-Connected --> Idle : disconnect()
-@enduml
-```
+**Example state machine definition:**
+- Define states (Idle, Connecting, Connected)
+- Define transitions with events and guards
+- Add entry/exit actions and internal behaviors
 
 **Step 2: Generate C Code**
 
+Use StateSmith CLI to generate C code from your state machine definition. See [CLI Usage](https://github.com/StateSmith/StateSmith/wiki/CLI:-Usage) for details.
+
 ```bash
-statesmith generate protocol.plantuml
+statesmith run --file protocol.csx
 # Generates: protocol_fsm.h, protocol_fsm.c
 ```
 
@@ -357,14 +380,23 @@ int main(void) {
 }
 ```
 
-**✅ Good Use Cases:**
-- Protocol state machines (UART, I2C, SPI)
-- UI state management (menu navigation, screens)
-- Complex event-driven logic (>5 states)
+**✅ Good Use Cases (Most Applications!):**
+- **Button handling:** Debounce, single/double/long press detection (even simple debounce is clearer as FSM)
+- **Protocol handlers:** UART, I2C, SPI communication with timeouts
+- **UI flows:** Menu navigation, screen transitions, user interactions
+- **Device control:** Power management, mode switching, error recovery
+- **Simple logic:** Even 2-3 state logic (idle/active/error) benefits from FSM clarity
+
+**Example: Button Debounce FSM (3 states)**
+```
+States: IDLE → PRESSED → DEBOUNCING
+Events: button_down, button_up, timeout
+Result: Clear, testable, no hidden bugs
+```
 
 **❌ Avoid For:**
-- Simple periodic tasks (use callbacks)
-- Linear sequences (use coroutines)
+- Pure periodic tasks with no state (use callbacks: LED blink, heartbeat)
+- Strictly linear sequences (use coroutines: sensor init → read → transmit)
 
 See [Coroutines Tutorial - StateSmith Integration](coroutines.md#statesmith-integration) for complete examples.
 

@@ -12,12 +12,14 @@ Traditional callback-based timers require splitting logic across multiple functi
 /* ❌ Callback style: logic split across functions */
 void step1_callback(void *data) {
     sensor_init();
-    safetimer_create(2000, TIMER_MODE_ONE_SHOT, step2_callback, NULL);
+    safetimer_handle_t h2 = safetimer_create(2000, TIMER_MODE_ONE_SHOT, step2_callback, NULL);
+    safetimer_start(h2);
 }
 
 void step2_callback(void *data) {
     sensor_read();
-    safetimer_create(1000, TIMER_MODE_ONE_SHOT, step3_callback, NULL);
+    safetimer_handle_t h3 = safetimer_create(1000, TIMER_MODE_ONE_SHOT, step3_callback, NULL);
+    safetimer_start(h3);
 }
 ```
 
@@ -262,13 +264,15 @@ SAFETIMER_CORO_END();
 void led_toggle(void *data) {
     toggle_led();
 }
-h = safetimer_create(500, TIMER_MODE_REPEAT, led_toggle, NULL);
+safetimer_handle_t h = safetimer_create(500, TIMER_MODE_REPEAT, led_toggle, NULL);
+safetimer_start(h);
 ```
 
 **2. One-Shot Delays** - Use TIMER_MODE_ONE_SHOT
 ```c
 /* ✅ Better with one-shot timer */
-h = safetimer_create(5000, TIMER_MODE_ONE_SHOT, shutdown_cb, NULL);
+safetimer_handle_t h = safetimer_create(5000, TIMER_MODE_ONE_SHOT, shutdown_cb, NULL);
+safetimer_start(h);
 ```
 
 ---
@@ -301,9 +305,13 @@ void protocol_fsm_cb(void *data) {
 
 int main(void) {
     /* Create all timers */
-    h1 = safetimer_create(1000, TIMER_MODE_REPEAT, heartbeat_cb, NULL);
-    h2 = safetimer_create(10, TIMER_MODE_REPEAT, sensor_coro, &sensor_ctx);
-    h3 = safetimer_create(100, TIMER_MODE_REPEAT, protocol_fsm_cb, &fsm_ctx);
+    safetimer_handle_t h1 = safetimer_create(1000, TIMER_MODE_REPEAT, heartbeat_cb, NULL);
+    safetimer_handle_t h2 = safetimer_create(10, TIMER_MODE_REPEAT, sensor_coro, &sensor_ctx);
+    safetimer_handle_t h3 = safetimer_create(100, TIMER_MODE_REPEAT, protocol_fsm_cb, &fsm_ctx);
+
+    safetimer_start(h1);
+    safetimer_start(h2);
+    safetimer_start(h3);
 
     /* ... */
 }
@@ -326,24 +334,22 @@ SafeTimer can serve as the **clock source** for StateSmith-generated state machi
 
 ### Integration Pattern
 
-**Step 1: Define State Machine (PlantUML)**
+**Step 1: Define State Machine**
 
-```plantuml
-@startuml
-[*] --> Idle
+StateSmith uses UML state diagrams to generate C code. See the [official documentation](https://github.com/StateSmith/StateSmith/wiki/Behaviors) for syntax and examples.
 
-Idle --> Connecting : connect()
-Connecting --> Connected : ack_received [timeout < 3000ms]
-Connecting --> Idle : timeout [timeout >= 3000ms]
-Connected --> Idle : disconnect()
-@enduml
-```
+**Example state machine definition:**
+- Define states (Idle, Connecting, Connected)
+- Define transitions with events and guards
+- Add entry/exit actions and internal behaviors
 
 **Step 2: Generate C Code with StateSmith**
 
+Use StateSmith CLI to generate C code. See [CLI Usage](https://github.com/StateSmith/StateSmith/wiki/CLI:-Usage) for details.
+
 ```bash
-# StateSmith generates: protocol_fsm.h, protocol_fsm.c
-statesmith generate protocol.plantuml
+statesmith run --file protocol.csx
+# Generates: protocol_fsm.h, protocol_fsm.c
 ```
 
 **Step 3: Integrate with SafeTimer**
