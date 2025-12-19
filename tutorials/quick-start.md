@@ -250,6 +250,11 @@ See [`examples/helpers_demo/`](../examples/helpers_demo/) for detailed compariso
 
 SafeTimer supports **stackless coroutines** (Protothread-style) for linear async programming. Perfect for UART timeouts, sensor polling, and multi-step initialization.
 
+**Setup:** No configuration needed - just include the header:
+```c
+#include "safetimer_coro.h"  // Enables coroutine macros
+```
+
 #### Quick Example
 
 ```c
