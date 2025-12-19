@@ -30,28 +30,6 @@ English | [简体中文](README_zh-CN.md)
 
 ### 1. Installation
 
-**🎯 Choose Your Integration Method:**
-
----
-
-#### 📋 Method 1A: Single-File Version (Easiest) ⭐
-
-**Best for:** Quick prototyping, simple projects, learning
-
-```bash
-# Only 2 files needed!
-cp SafeTimer/single-file/safetimer_single.h your_project/
-cp SafeTimer/single-file/safetimer_single.c your_project/
-```
-
-✅ Minimal setup, full core functionality
-✅ All configuration in one header file
-✅ [See single-file README](single-file/README.md) for details
-
----
-
-#### 📋 Method 1B: Standard Version (Recommended)
-
 Copy these files to your project directory:
 
 ```bash

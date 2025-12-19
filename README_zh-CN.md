@@ -29,28 +29,6 @@
 
 ### 1. 集成方式
 
-**🎯 选择适合你的集成方式：**
-
----
-
-#### 📋 方式 1A：单文件版本（最简单）⭐
-
-**适用场景：** 快速原型开发、简单项目、学习入门
-
-```bash
-# 仅需 2 个文件！
-cp SafeTimer/single-file/safetimer_single.h your_project/
-cp SafeTimer/single-file/safetimer_single.c your_project/
-```
-
-✅ 最小化集成复杂度，完整核心功能
-✅ 所有配置在单个头文件中
-✅ [查看单文件版本说明](single-file/README.md)
-
----
-
-#### 📋 方式 1B：标准版本（推荐）
-
 复制以下文件到你的项目目录：
 
 ```bash
