@@ -63,9 +63,53 @@ See [`examples/`](../examples/) for complete BSP implementations.
 
 ---
 
-## Step 3: Use Timers
+## Step 3: Choose Your Programming Model
 
-### Basic Usage (Core API)
+SafeTimer supports **three programming models**. Choose based on your task complexity:
+
+### 🎯 Decision Flowchart
+
+```mermaid
+flowchart TD
+    Start([What are you building?])
+
+    Start --> Simple[Simple Periodic Task<br/>LED blink, Heartbeat, Watchdog]
+    Start --> Sequential[Sequential Delays<br/>Sensor polling, UART timeout]
+    Start --> Complex[Event-driven Logic<br/>Protocol FSM, UI flows, >5 states]
+
+    Simple --> ModelA[✅ Use Callback Timers]
+    Sequential --> ModelB[✅ Use Coroutines]
+    Complex --> ModelC[✅ Use StateSmith FSM]
+
+    ModelA --> ImplA[See Model A below]
+    ModelB --> ImplB[See Model B below]
+    ModelC --> ImplC[See Model C below]
+
+    style ModelA fill:#90EE90,stroke:#333,stroke-width:2px
+    style ModelB fill:#87CEEB,stroke:#333,stroke-width:2px
+    style ModelC fill:#FFB6C1,stroke:#333,stroke-width:2px
+    style Start fill:#FFE4B5,stroke:#333,stroke-width:2px
+```
+
+### 📊 Quick Comparison
+
+| Model | Best For | Example | Complexity |
+|-------|----------|---------|------------|
+| **Callback Timers** | Periodic tasks | LED blink, heartbeat | ⭐ Simple |
+| **Coroutines** | Sequential delays | Sensor polling, UART timeout | ⭐⭐ Medium |
+| **StateSmith FSM** | State machines | Protocol handlers, UI flows | ⭐⭐⭐ Advanced |
+
+**💡 Pro Tip:** You can mix all three models in one application! See [Coroutines Tutorial](coroutines.md#mixed-mode-architecture) for examples.
+
+---
+
+## Step 4: Implement Your Chosen Model
+
+### Model A: Callback Timers (Most Common)
+
+**Use when:** Simple periodic tasks without complex state.
+
+#### Basic Usage (Core API)
 
 ```c
 #include "safetimer.h"
@@ -130,11 +174,13 @@ See [`examples/helpers_demo/`](../examples/helpers_demo/) for detailed compariso
 
 ---
 
-## Advanced: Coroutines (v1.3.0+)
+### Model B: Coroutines (v1.3.0+)
 
-SafeTimer supports **stackless coroutines** (Protothread-style) for linear async programming. Perfect for UART timeouts, sensor polling, and state machines.
+**Use when:** Linear sequences with delays (sensor init → warmup → read → transmit).
 
-### Quick Example
+SafeTimer supports **stackless coroutines** (Protothread-style) for linear async programming. Perfect for UART timeouts, sensor polling, and multi-step initialization.
+
+#### Quick Example
 
 ```c
 #include "safetimer.h"
@@ -188,13 +234,92 @@ int main(void) {
 - `SAFETIMER_CORO_RESET()` - Restart coroutine from beginning
 - `SAFETIMER_CORO_EXIT()` - Exit coroutine permanently
 
-**When to Use Coroutines:**
-- ✅ UART timeouts with state machines
-- ✅ Sensor polling with multi-step sequences
-- ✅ Protocol implementations with delays
-- ❌ Simple periodic tasks (use callbacks instead)
+**✅ Good Use Cases:**
+- UART communication with timeouts
+- Sensor polling sequences (init → warmup → read)
+- Multi-step initialization flows
+
+**❌ Avoid For:**
+- Simple periodic tasks (use callbacks)
+- Complex event-driven logic (use StateSmith FSM)
 
 See [Coroutines Tutorial](coroutines.md) for complete guide with semaphores.
+
+---
+
+### Model C: StateSmith FSM (Advanced)
+
+**Use when:** Complex event-driven logic with multiple states (>5 states, protocol handlers, UI flows).
+
+[StateSmith](https://github.com/StateSmith/StateSmith) generates efficient C code from UML state diagrams. SafeTimer provides the **clock source** for FSM tick events.
+
+#### Integration Pattern
+
+**Step 1: Define State Machine (PlantUML)**
+
+```plantuml
+@startuml
+[*] --> Idle
+
+Idle --> Connecting : connect()
+Connecting --> Connected : ack_received [timeout < 3000ms]
+Connecting --> Idle : timeout [timeout >= 3000ms]
+Connected --> Idle : disconnect()
+@enduml
+```
+
+**Step 2: Generate C Code**
+
+```bash
+statesmith generate protocol.plantuml
+# Generates: protocol_fsm.h, protocol_fsm.c
+```
+
+**Step 3: Integrate with SafeTimer**
+
+```c
+#include "safetimer.h"
+#include "protocol_fsm.h"  /* StateSmith-generated */
+
+static protocol_fsm_t g_fsm;
+
+/* Timer callback: dispatch tick event to FSM */
+void fsm_tick_callback(void *user_data) {
+    protocol_fsm_t *fsm = (protocol_fsm_t *)user_data;
+    protocol_fsm_dispatch(fsm, PROTOCOL_FSM_EVENT_TICK);
+}
+
+int main(void) {
+    init_timer0();
+    protocol_fsm_init(&g_fsm);
+
+    /* Create 100ms tick timer for FSM */
+    safetimer_handle_t h_fsm = safetimer_create(
+        100, TIMER_MODE_REPEAT, fsm_tick_callback, &g_fsm
+    );
+    safetimer_start(h_fsm);
+
+    while (1) {
+        safetimer_process();
+
+        /* External events can be dispatched directly */
+        if (button_pressed()) {
+            protocol_fsm_dispatch(&g_fsm, PROTOCOL_FSM_EVENT_CONNECT);
+        }
+    }
+}
+```
+
+**✅ Good Use Cases:**
+- Protocol state machines (UART, I2C, SPI)
+- UI state management (menu navigation, screens)
+- Complex event-driven logic (>5 states)
+
+**❌ Avoid For:**
+- Simple periodic tasks (use callbacks)
+- Linear sequences (use coroutines)
+
+See [Coroutines Tutorial - StateSmith Integration](coroutines.md#statesmith-integration) for complete examples.
 
 ---
 
