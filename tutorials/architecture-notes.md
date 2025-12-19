@@ -270,7 +270,7 @@ switch (ctx->_coro_lc) {
 
 ## 📚 Architectural Decision Records (ADRs)
 
-Detailed design decisions documented in [docs/architecture.md](../docs/architecture.md):
+Key architectural decisions (ADRs):
 
 - **ADR-001:** Fixed-size timer pool with handle-based access
 - **ADR-002:** Core/Helper API separation
@@ -330,9 +330,9 @@ void safetimer_process(void) {
 
 ## 📖 Further Reading
 
-- **ADR Details:** [docs/architecture.md](../docs/architecture.md)
 - **BSP Implementation:** [BSP Porting Guide](bsp-porting.md)
-- **API Reference:** [docs/api_reference.md](../docs/api_reference.md)
+- **API Reference:** See `include/safetimer.h` for complete API documentation
+- **Source Code:** See `src/safetimer.c` for implementation details
 
 ---
 

@@ -203,8 +203,4 @@ See [Coroutines Tutorial](coroutines.md) for complete guide with semaphores.
 - **Configuration:** [Configuration & Tuning](configuration-and-tuning.md)
 - **Real-world Examples:** [Use Cases & Best Practices](use-cases.md)
 - **Hardware Porting:** [BSP Porting Guide](bsp-porting.md)
-- **API Reference:** [../docs/api_reference.md](../docs/api_reference.md)
-
----
-
-**Questions?** See [../docs/user_guide.md](../docs/user_guide.md) for comprehensive documentation.
+- **API Reference:** See `include/safetimer.h` for complete API documentation

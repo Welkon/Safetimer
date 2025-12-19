@@ -37,4 +37,4 @@ New to SafeTimer? Start with the [Quick Start](quick-start.md) tutorial.
 
 ---
 
-**Main Documentation:** See [../docs/](../docs/) for API reference and detailed specifications.
+**API Reference:** See `include/safetimer.h` and related headers for complete API documentation.

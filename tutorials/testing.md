@@ -238,9 +238,8 @@ make static-analysis
 
 ## 📖 Next Steps
 
-- **API Reference:** [../docs/api_reference.md](../docs/api_reference.md)
-- **Contributing Tests:** [../CONTRIBUTING.md](../CONTRIBUTING.md)
-- **CI Configuration:** [../.github/workflows/test.yml](../.github/workflows/test.yml)
+- **API Reference:** See `include/safetimer.h` for complete API documentation
+- **Test Examples:** See `test/` directory for comprehensive test suite
 
 ---
 

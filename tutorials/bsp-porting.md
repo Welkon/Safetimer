@@ -399,7 +399,7 @@ See [`examples/`](../examples/) for complete BSP implementations:
 - **SC8F072:** 8-bit 8051-compatible MCU
 - **Coroutine Demo:** Mock BSP for testing
 
-For detailed porting guide, see [../docs/porting_guide.md](../docs/porting_guide.md).
+See [`examples/`](../examples/) for complete BSP implementations.
 
 ---
 

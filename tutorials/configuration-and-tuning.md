@@ -278,7 +278,7 @@ Use [Design Guidelines](design-guidelines.md) to minimize fragmentation:
 
 ## 📖 Next Steps
 
-- **API Details:** [../docs/api_reference.md](../docs/api_reference.md)
+- **API Details:** See `include/safetimer_config.h` for all configuration options
 - **Hardware Porting:** [BSP Porting Guide](bsp-porting.md)
 - **Design Patterns:** [Design Guidelines](design-guidelines.md)
 

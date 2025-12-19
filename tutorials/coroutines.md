@@ -327,7 +327,7 @@ See [`examples/coroutine_demo/`](../examples/coroutine_demo/) for complete mixed
 
 - **Best Practices:** [Use Cases & Best Practices](use-cases.md)
 - **Performance Tuning:** [Configuration & Tuning](configuration-and-tuning.md)
-- **API Reference:** [../docs/api_reference.md](../docs/api_reference.md)
+- **API Reference:** See `include/safetimer_coro.h` for complete coroutine API
 
 ---
 

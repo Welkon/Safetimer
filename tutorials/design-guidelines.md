@@ -348,7 +348,7 @@ void init_all_timers(void) {
 
 - **Use Cases:** [Use Cases & Best Practices](use-cases.md)
 - **Configuration:** [Configuration & Tuning](configuration-and-tuning.md)
-- **API Reference:** [../docs/api_reference.md](../docs/api_reference.md)
+- **API Reference:** See `include/safetimer.h` for complete API documentation
 
 ---
 
