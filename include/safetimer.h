@@ -184,6 +184,65 @@ timer_error_t safetimer_set_period(
 );
 
 /**
+ * @brief Advance timer period (phase-locked, zero cumulative error)
+ *
+ * Unlike safetimer_set_period() which resets the timer countdown from
+ * the current tick, safetimer_advance_period() advances the expire_time
+ * by the new period while maintaining the previous timing phase. This
+ * eliminates cumulative timing error in periodic tasks like coroutines.
+ *
+ * **Key Difference:**
+ * - `safetimer_set_period()`: expire_time = current_tick + new_period (resets phase)
+ * - `safetimer_advance_period()`: expire_time += new_period (preserves phase)
+ *
+ * **Use Cases:**
+ * - Coroutine SAFETIMER_CORO_SLEEP() (called internally by macro)
+ * - Any periodic task requiring zero-drift timing (LED blink, sensor polling)
+ * - Long-running battery-powered applications (eliminates drift over days/months)
+ *
+ * **Behavior:**
+ * - Active timer: Advances expire_time from last scheduled expiration
+ * - Inactive timer: Behaves like set_period() (no previous phase to preserve)
+ * - Overflow-safe: Uses ADR-005 wraparound algorithm
+ *
+ * @param handle Valid timer handle returned by safetimer_create()
+ * @param new_period_ms New period in milliseconds (1 ~ 2^31-1)
+ *
+ * @return TIMER_OK on success, error code otherwise
+ * @retval TIMER_ERR_INVALID Invalid handle or period out of range (0 or >2^31-1)
+ * @retval TIMER_ERR_NOT_FOUND Timer has been deleted
+ *
+ * @note Thread-safe (uses BSP critical section)
+ * @note If timer execution is severely delayed, advances to the next future period
+ * @note Introduced in v1.3.1 to fix coroutine cumulative timing error
+ *
+ * @par Timing Error Comparison:
+ * @code
+ * // Using safetimer_set_period() (OLD):
+ * // 100ms period, 1 year runtime -> ~52.6 minutes cumulative error
+ *
+ * // Using safetimer_advance_period() (NEW):
+ * // 100ms period, infinite runtime -> ZERO cumulative error
+ * @endcode
+ *
+ * @par Example (internal coroutine use):
+ * @code
+ * // User code:
+ * SAFETIMER_CORO_SLEEP(100);  // Sleeps exactly 100ms per cycle
+ *
+ * // Macro expansion (calls advance_period internally):
+ * safetimer_advance_period(ctx->_coro_handle, 100);
+ * @endcode
+ *
+ * @see safetimer_set_period() for "reset from now" behavior
+ * @see SAFETIMER_CORO_SLEEP() macro in safetimer_coro.h
+ */
+timer_error_t safetimer_advance_period(
+    safetimer_handle_t  handle,
+    uint32_t            new_period_ms
+);
+
+/**
  * @brief Process all active timers (MUST be called periodically)
  *
  * Checks all active timers against current system tick and triggers

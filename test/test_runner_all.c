@@ -103,6 +103,16 @@ extern void test_create_started_batch_null_checks(void);
 extern void test_macro_create_started_or_success(void);
 extern void test_macro_create_started_or_failure(void);
 
+/* From test_safetimer_advance_period.c (v1.3.1) */
+extern void test_advance_period_basic_phase_locked(void);
+extern void test_advance_period_zero_cumulative_error(void);
+extern void test_advance_vs_set_period_behavior(void);
+extern void test_advance_period_inactive_timer(void);
+extern void test_advance_period_invalid_params(void);
+extern void test_advance_period_delayed_execution(void);
+extern void test_advance_period_overflow_wraparound(void);
+extern void test_advance_period_regression_existing_timers(void);
+
 /* ========== Main Test Runner ========== */
 
 int main(void) {
@@ -172,6 +182,16 @@ int main(void) {
     RUN_TEST(test_create_started_batch_null_checks);
     RUN_TEST(test_macro_create_started_or_success);
     RUN_TEST(test_macro_create_started_or_failure);
+
+    printf("\n========== Advance Period API Tests (v1.3.1) ==========\n");
+    RUN_TEST(test_advance_period_basic_phase_locked);
+    RUN_TEST(test_advance_period_zero_cumulative_error);
+    RUN_TEST(test_advance_vs_set_period_behavior);
+    RUN_TEST(test_advance_period_inactive_timer);
+    RUN_TEST(test_advance_period_invalid_params);
+    RUN_TEST(test_advance_period_delayed_execution);
+    RUN_TEST(test_advance_period_overflow_wraparound);
+    RUN_TEST(test_advance_period_regression_existing_timers);
 
     return UNITY_END();
 }

@@ -301,6 +301,106 @@ timer_error_t safetimer_set_period(
 }
 
 /**
+ * @brief Advance timer period (phase-locked, zero cumulative error)
+ *
+ * Unlike safetimer_set_period() which resets countdown from current tick,
+ * this function advances the expire_time by the new period, maintaining
+ * phase-locking and eliminating cumulative timing error in coroutines.
+ *
+ * Implementation details:
+ * - Calculates last_expire = current_expire_time - old_period
+ * - Sets new_expire_time = last_expire + new_period
+ * - If new_expire_time is in the past, advances it to the future
+ * - Uses ADR-005 overflow-safe comparison (safetimer_tick_diff)
+ * - Thread-safe with BSP critical section protection
+ *
+ * Use cases:
+ * - Coroutine SAFETIMER_CORO_SLEEP() for zero-drift periodic tasks
+ * - Any scenario requiring strict phase-locking (LED blink, sensor polling)
+ *
+ * Difference from safetimer_set_period():
+ * - set_period(): expire_time = current_tick + period (resets phase)
+ * - advance_period(): expire_time += period (preserves phase)
+ *
+ * @param handle Valid timer handle
+ * @param new_period_ms New period in milliseconds (1 ~ 2^31-1)
+ *
+ * @return TIMER_OK on success, error code otherwise
+ * @retval TIMER_ERR_INVALID Invalid handle or period out of range
+ * @retval TIMER_ERR_NOT_FOUND Timer not found or deleted
+ *
+ * @note If timer is inactive, behaves like set_period() (no previous phase)
+ * @note Handles overflow/wraparound automatically (ADR-005)
+ *
+ * @par Example:
+ * @code
+ * // Coroutine internal use (via macro)
+ * SAFETIMER_CORO_SLEEP(100);  // Uses advance_period() internally
+ * @endcode
+ */
+timer_error_t safetimer_advance_period(
+    safetimer_handle_t  handle,
+    uint32_t            new_period_ms
+)
+{
+#if ENABLE_PARAM_CHECK
+    /* Validate period range */
+    if (new_period_ms == 0 || new_period_ms > 0x7FFFFFFFUL)
+    {
+        return TIMER_ERR_INVALID;  /* Period must be 1 ~ 2^31-1 */
+    }
+
+    /* Validate handle and check if slot is allocated */
+    if (!validate_handle(handle))
+    {
+        return TIMER_ERR_INVALID;  /* Invalid handle or timer deleted */
+    }
+#endif
+
+    bsp_tick_t current_tick;
+
+    /* Read BSP tick before entering the SafeTimer critical section */
+    current_tick = bsp_get_ticks();
+
+    bsp_enter_critical();
+
+    /* Store old period before updating */
+    uint32_t prev_period = g_timer_pool.slots[handle].period;
+
+    /* Update period field */
+    g_timer_pool.slots[handle].period = new_period_ms;
+
+    /* Phase-locked advance: maintain timing relationship to previous expire_time */
+    if (g_timer_pool.slots[handle].active)
+    {
+        /* Calculate when the timer SHOULD have expired based on old period.
+         * This is overflow-safe because both values are bsp_tick_t (uint32_t). */
+        bsp_tick_t last_expire = g_timer_pool.slots[handle].expire_time - prev_period;
+
+        /* Advance from last scheduled expiration, not current time */
+        g_timer_pool.slots[handle].expire_time = last_expire + new_period_ms;
+
+        /* If coroutine execution delayed too long and new expire_time is in the past,
+         * advance it to the future using REPEAT-style catch-up logic.
+         * This prevents burst callbacks while maintaining zero cumulative error. */
+        while (safetimer_tick_diff(current_tick,
+               g_timer_pool.slots[handle].expire_time) >= 0)
+        {
+            g_timer_pool.slots[handle].expire_time += new_period_ms;
+        }
+    }
+    else
+    {
+        /* Timer not active: no previous phase to preserve, behave like set_period() */
+        g_timer_pool.slots[handle].expire_time = current_tick + new_period_ms;
+    }
+
+    bsp_exit_critical();
+
+    return TIMER_OK;
+}
+
+/**
  * @brief Process all active timers
  *
  * Implementation details (ADR-005 CRITICAL):
