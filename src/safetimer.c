@@ -468,15 +468,28 @@ timer_error_t safetimer_advance_period(safetimer_handle_t handle,
         g_timer_pool.slots[slot_index].expire_time - prev_period;
 
     /* Advance from last scheduled expiration, not current time */
-    g_timer_pool.slots[slot_index].expire_time = last_expire + new_period_ms;
+    bsp_tick_t new_expire = last_expire + new_period_ms;
 
     /* If coroutine execution delayed too long and new expire_time is in the
      * past, advance it to the future using REPEAT-style catch-up logic. This
-     * prevents burst callbacks while maintaining zero cumulative error. */
-    while (safetimer_tick_diff(current_tick,
-                               g_timer_pool.slots[slot_index].expire_time) >= 0) {
-      g_timer_pool.slots[slot_index].expire_time += new_period_ms;
+     * prevents burst callbacks while maintaining zero cumulative error.
+     *
+     * CRITICAL: Division moved outside critical section to reduce interrupt
+     * latency (fixes Advance Loop + Heavy Division risks). */
+    int32_t lag = safetimer_tick_diff(current_tick, new_expire);
+    if (lag >= 0) {
+      /* Release critical section before expensive division */
+      bsp_exit_critical();
+
+      /* Behind schedule - advance by N periods to catch up (OUTSIDE critical section) */
+      uint32_t missed_periods = ((uint32_t)lag / new_period_ms) + 1;
+      new_expire += (missed_periods * new_period_ms);
+
+      /* Re-enter critical section to update expire_time */
+      bsp_enter_critical();
     }
+
+    g_timer_pool.slots[slot_index].expire_time = new_expire;
   } else {
     /* Timer not active: no previous phase to preserve, behave like set_period()
      */
@@ -806,20 +819,35 @@ STATIC void trigger_timer(int slot_index, bsp_tick_t current_tick,
         g_timer_pool.slots[slot_index].period;
 #else
     /* Skip mode (default): coalesce missed intervals using math instead of loop
-     * to prevent watchdog timeout in critical section (fixes Trap #2) */
+     * to prevent watchdog timeout in critical section (fixes Trap #2)
+     *
+     * CRITICAL: Division moved outside critical section to reduce interrupt
+     * latency on 8-bit MCUs without hardware divider (fixes Heavy Division risk).
+     * 32-bit division can take 50-150μs, unacceptable in critical section. */
+
+    /* Snapshot values inside critical section */
     bsp_tick_t old_expire = g_timer_pool.slots[slot_index].expire_time;
     uint32_t period = g_timer_pool.slots[slot_index].period;
 
-    /* Calculate how many periods we're behind */
+    /* Release critical section before expensive division */
+    bsp_exit_critical();
+
+    /* Calculate how many periods we're behind (OUTSIDE critical section) */
     int32_t lag = safetimer_tick_diff(current_tick, old_expire);
+    bsp_tick_t new_expire;
+
     if (lag >= 0) {
       /* We're behind schedule - advance by N periods to catch up */
       uint32_t missed_periods = ((uint32_t)lag / period) + 1;
-      g_timer_pool.slots[slot_index].expire_time = old_expire + (missed_periods * period);
+      new_expire = old_expire + (missed_periods * period);
     } else {
       /* Should not happen (timer not expired yet), but handle gracefully */
-      g_timer_pool.slots[slot_index].expire_time += period;
+      new_expire = old_expire + period;
     }
+
+    /* Re-enter critical section to update expire_time */
+    bsp_enter_critical();
+    g_timer_pool.slots[slot_index].expire_time = new_expire;
 #endif
   }
 }
