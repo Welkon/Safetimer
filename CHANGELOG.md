@@ -1013,8 +1013,7 @@ SafeTimer/
 │   ├── safetimer_config.h
 │   └── bsp.h
 ├── src/               # Core implementation
-│   ├── safetimer.c
-│   └── safetimer_internal.h
+│   └── safetimer.c
 ├── examples/          # Hardware examples
 │   └── sc8f072/
 ├── test/              # Unit tests

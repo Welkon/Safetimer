@@ -17,12 +17,55 @@
 /* ========== Include Files ========== */
 #include <stddef.h>  /* For NULL definition */
 #include "safetimer.h"
-#include "safetimer_internal.h"
+
+/* ========== Internal Data Structures ========== */
+
+/**
+ * @brief Timer slot structure (14 bytes per timer)
+ *
+ * Memory layout (8-bit MCU, 2-byte pointers):
+ *   period:          4 bytes (uint32_t)
+ *   expire_time:     4 bytes (uint32_t / bsp_tick_t)
+ *   callback:        2 bytes (function pointer)
+ *   user_data:       2 bytes (void pointer)
+ *   mode:            1 byte  (uint8_t)
+ *   active:          1 byte  (uint8_t)
+ *   TOTAL:          14 bytes/timer
+ */
+typedef struct {
+    bsp_tick_t          period;        /**< Timer period in milliseconds */
+    bsp_tick_t          expire_time;   /**< Expiration timestamp (for overflow algorithm) */
+    timer_callback_t    callback;      /**< User callback function (can be NULL) */
+    void               *user_data;     /**< User data passed to callback */
+    uint8_t             mode;          /**< TIMER_MODE_ONE_SHOT or TIMER_MODE_REPEAT */
+    uint8_t             active;        /**< 1=active, 0=inactive */
+} timer_slot_t;
+
+/**
+ * @brief Timer pool structure (global state)
+ *
+ * Memory layout:
+ *   slots:       MAX_TIMERS * 14 bytes (timer_slot_t array)
+ *   used_bitmap: 4 bytes  (uint32_t, supports up to 32 timers)
+ *   TOTAL:       MAX_TIMERS * 14 + 4 bytes
+ *
+ * For MAX_TIMERS=4: 4*14 + 4 = 60 bytes
+ * For MAX_TIMERS=8: 8*14 + 4 = 116 bytes
+ */
+typedef struct {
+    timer_slot_t    slots[MAX_TIMERS];  /**< Timer slot array */
+    uint32_t        used_bitmap;        /**< Bitmap of used slots (bit 0 = slot 0, etc.) */
+} safetimer_pool_t;
+
+/* Compile-time validation: MAX_TIMERS must not exceed bitmap width */
+#if MAX_TIMERS > 32
+#error "SafeTimer bitmap only supports MAX_TIMERS <= 32"
+#endif
 
 /* ========== Global Variables ========== */
 
 /**
- * @brief Global timer pool (114 bytes for MAX_TIMERS=8)
+ * @brief Global timer pool (60 bytes for MAX_TIMERS=4, 116 bytes for MAX_TIMERS=8)
  *
  * Initialized to zero by C standard (all timers inactive at startup).
  * Protected by BSP critical sections during modifications.

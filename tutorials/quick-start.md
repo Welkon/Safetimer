@@ -19,12 +19,9 @@ cp SafeTimer/src/safetimer.c your_project/
 cp SafeTimer/include/safetimer_helpers.h your_project/
 ```
 
-⚠️ **Do NOT copy** `src/safetimer_internal.h` (internal use only)
-
 **File Summary:**
 - ✅ **Required (4 files):** safetimer.h, safetimer_config.h, bsp.h, safetimer.c
 - ✅ **Optional (1 file):** safetimer_helpers.h (convenience API, v1.1+)
-- ❌ **Never copy:** safetimer_internal.h (internal implementation)
 
 ---
 
