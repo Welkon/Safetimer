@@ -5,6 +5,152 @@ All notable changes to SafeTimer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2025-12-19
+
+### ✨ 新增：Protothread 风格协程支持
+
+**核心功能：**
+
+SafeTimer 现已支持零栈协程（stackless coroutines），基于 Duff's Device 技术实现 Protothread 风格的异步编程模型。协程与传统回调、StateSmith 状态机完全兼容，可在同一应用中共存。
+
+#### 新增 API
+
+**协程控制宏（8 个）：**
+- `SAFETIMER_CORO_CONTEXT` - 协程上下文基础结构
+- `SAFETIMER_CORO_BEGIN(ctx)` - 开始协程体
+- `SAFETIMER_CORO_END()` - 结束协程体
+- `SAFETIMER_CORO_YIELD()` - 显式让出执行权
+- `SAFETIMER_CORO_SLEEP(ms)` - 睡眠指定毫秒
+- `SAFETIMER_CORO_WAIT_UNTIL(cond, poll_ms)` - 等待条件成立
+- `SAFETIMER_CORO_RESET()` - 重启协程
+- `SAFETIMER_CORO_EXIT()` - 永久退出协程
+
+**信号量支持宏（5 个）：**
+- `SAFETIMER_SEM_INIT(sem)` - 初始化信号量
+- `SAFETIMER_SEM_SIGNAL(sem)` - 发送信号（中断安全）
+- `SAFETIMER_SEM_SIGNAL_SAFE(sem)` - 安全信号（跳过超时状态）
+- `SAFETIMER_CORO_WAIT_SEM(sem, poll_ms, timeout_count)` - 等待信号量（带超时）
+- `SAFETIMER_CORO_WAIT_SEM_FOREVER(sem, poll_ms)` - 无限等待信号量
+
+#### 使用示例
+
+**LED 闪烁（协程 vs 回调）：**
+
+```c
+// 传统回调方式
+void led_callback(void *data) {
+    static int state = 0;
+    if (state == 0) {
+        led_on();
+        safetimer_set_period(handle, 100);
+        state = 1;
+    } else {
+        led_off();
+        safetimer_set_period(handle, 900);
+        state = 0;
+    }
+}
+
+// 协程方式（更清晰）
+void led_coro(void *data) {
+    my_ctx_t *ctx = (my_ctx_t *)data;
+    SAFETIMER_CORO_BEGIN(ctx);
+    while(1) {
+        led_on();
+        SAFETIMER_CORO_SLEEP(100);
+        led_off();
+        SAFETIMER_CORO_SLEEP(900);
+    }
+    SAFETIMER_CORO_END();
+}
+```
+
+**信号量同步（生产者-消费者）：**
+
+```c
+static volatile safetimer_sem_t data_ready_sem;
+SAFETIMER_SEM_INIT(data_ready_sem);
+
+// 生产者（中断）
+void data_isr(void) {
+    SAFETIMER_SEM_SIGNAL(data_ready_sem);
+}
+
+// 消费者（协程）
+SAFETIMER_CORO_WAIT_SEM(data_ready_sem, 10, 100);  // 最多等待 1000ms
+if (data_ready_sem == SAFETIMER_SEM_TIMEOUT) {
+    handle_timeout();
+} else {
+    process_data();
+}
+```
+
+### 🐛 修复：关键架构缺陷（Codex/Gemini 联合审计）
+
+经过 Codex 和 Gemini 双模型代码审计，发现并修复了 7 个严重问题：
+
+**CRITICAL 级别修复：**
+1. **Bitmap 溢出风险**：`used_bitmap` 从 `uint8_t`（仅支持 8 个定时器）扩展为 `uint32_t`（支持最多 32 个定时器），防止 `MAX_TIMERS > 8` 时的内存损坏。
+2. **信号量竞态条件**：`safetimer_sem_t` 从 `int16_t` 改为 `int8_t`（8 位 MCU 原子读写），所有信号量操作添加 BSP 临界区保护。
+3. **信号丢失问题**：`SAFETIMER_CORO_WAIT_SEM` 添加双重信号检查，防止在等待前已发送的信号被覆盖。
+
+**HIGH 级别修复：**
+4. **协程退出失效**：`SAFETIMER_CORO_EXIT()` 添加哨兵值检查（`0xFFFF`），确保已退出的协程不会继续运行。
+
+**MEDIUM 级别修复：**
+5. **示例代码中断安全**：信号量变量添加 `volatile` 修饰符，防止编译器缓存导致 ISR 写入丢失。
+6. **时间溢出处理**：示例代码添加 ADR-005 兼容的 `elapsed_ms()` 辅助函数，正确处理 16/32 位定时器溢出。
+
+### 📊 RAM 使用量优化
+
+| 配置          | v1.2.6 | v1.3.0 | 变化   |
+|---------------|--------|--------|--------|
+| MAX_TIMERS=4  | N/A    | 60 B   | -      |
+| MAX_TIMERS=8  | 114 B  | 116 B  | +2 B   |
+| **最大支持**  | 8      | 32     | +400%  |
+
+**说明**：
+- 协程状态完全由用户管理（`SAFETIMER_CORO_CONTEXT`），无需修改 `timer_slot_t` 结构
+- `used_bitmap` 扩展（+2 B）换取更高扩展性（32 个定时器支持）
+- RAM 增长仅 1.75%（114 → 116 字节），但可靠性大幅提升
+
+### 🏗️ 架构设计
+
+**三种定时器模式共存：**
+
+1. **传统回调**：简单周期性任务（如 LED 闪烁）
+2. **StateSmith 状态机**：复杂事件驱动逻辑（如按键消抖）
+3. **协程**：线性异步逻辑（如 UART 超时、传感器轮询）
+
+**关键设计决策：**
+- 协程状态存储在用户提供的上下文结构中（`_coro_lc` 字段）
+- `user_data` 指针保留给 StateSmith，避免冲突
+- 每种模式使用独立的定时器实例，通过 `user_data` 区分
+
+### 📦 新增文件
+
+- `include/safetimer_coro.h` - 协程 API（232 行，完整文档）
+- `include/safetimer_sem.h` - 信号量 API（250 行，完整文档）
+- `examples/coroutine_demo/example_coroutine.c` - 纯协程示例（LED + UART + 信号量）
+- `examples/coroutine_demo/example_mixed_mode.c` - 三模式共存示例
+
+### ⚠️ 重大变更
+
+**信号量类型限制：**
+- `safetimer_sem_t` 现为 `int8_t`（之前原型版本可能使用 `int16_t`）
+- `SAFETIMER_CORO_WAIT_SEM` 的 `timeout_count` 参数最大值为 126（`int8_t` 限制）
+- 如需更长超时，增大 `poll_ms` 参数而非 `timeout_count`
+
+**编译时检查：**
+- 新增 `#if MAX_TIMERS > 32` 编译错误，防止 bitmap 溢出
+- RAM 预算检查公式更新：`MAX_TIMERS * 14 + 4 ≤ 160 字节`
+
+### 🙏 致谢
+
+本版本协程功能参考了 Tiny-Macro-OS 的 Protothread 设计，架构审计由 Anthropic Codex 和 Google Gemini 模型协作完成。
+
+---
+
 ## [1.2.6] - 2025-12-17
 
 ### 🎯 New Feature: safetimer_set_period() API (Safety Enhancement)

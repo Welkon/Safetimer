@@ -19,19 +19,19 @@
  * @brief Timer slot structure (14 bytes per timer)
  *
  * Memory layout (8-bit MCU, 2-byte pointers):
- *   period:      4 bytes (uint32_t)
- *   expire_time: 4 bytes (uint32_t / bsp_tick_t)
- *   callback:    2 bytes (function pointer)
- *   user_data:   2 bytes (void pointer)
- *   mode:        1 byte  (uint8_t)
- *   active:      1 byte  (uint8_t)
- *   TOTAL:      14 bytes/timer
+ *   period:          4 bytes (uint32_t)
+ *   expire_time:     4 bytes (uint32_t / bsp_tick_t)
+ *   callback:        2 bytes (function pointer)
+ *   user_data:       2 bytes (void pointer)
+ *   mode:            1 byte  (uint8_t)
+ *   active:          1 byte  (uint8_t)
+ *   TOTAL:          14 bytes/timer (coroutine state stored in user context)
  */
 typedef struct {
     bsp_tick_t          period;        /**< Timer period in milliseconds */
     bsp_tick_t          expire_time;   /**< Expiration timestamp (for overflow algorithm) */
     timer_callback_t    callback;      /**< User callback function (can be NULL) */
-    void               *user_data;     /**< User data passed to callback */
+    void               *user_data;     /**< User data passed to callback (StateSmith context, etc.) */
     uint8_t             mode;          /**< TIMER_MODE_ONE_SHOT or TIMER_MODE_REPEAT */
     uint8_t             active;        /**< 1=active, 0=inactive */
 } timer_slot_t;
@@ -41,24 +41,28 @@ typedef struct {
  *
  * Memory layout:
  *   slots:       MAX_TIMERS * 14 bytes (timer_slot_t array)
- *   used_bitmap: 1 byte  (uint8_t, supports up to 8 timers)
- *   reserved:    1 byte  (padding/future use)
- *   TOTAL:       MAX_TIMERS * 14 + 2 bytes
+ *   used_bitmap: 4 bytes  (uint32_t, supports up to 32 timers)
+ *   TOTAL:       MAX_TIMERS * 14 + 4 bytes
  *
- * For MAX_TIMERS=8: 8*14 + 2 = 114 bytes
+ * For MAX_TIMERS=4: 4*14 + 4 = 60 bytes
+ * For MAX_TIMERS=8: 8*14 + 4 = 116 bytes
  */
 typedef struct {
     timer_slot_t    slots[MAX_TIMERS];  /**< Timer slot array */
-    uint8_t         used_bitmap;        /**< Bitmap of used slots (bit 0 = slot 0, etc.) */
-    uint8_t         reserved;           /**< Reserved for future use / padding */
+    uint32_t        used_bitmap;        /**< Bitmap of used slots (bit 0 = slot 0, etc.) */
 } safetimer_pool_t;
+
+/* Compile-time validation: MAX_TIMERS must not exceed bitmap width */
+#if MAX_TIMERS > 32
+#error "SafeTimer bitmap only supports MAX_TIMERS <= 32"
+#endif
 
 /* ========== Internal Global State ========== */
 
 /**
  * @brief Global timer pool (THE ONLY global variable)
  *
- * RAM Usage: ~114 bytes (for MAX_TIMERS=8)
+ * RAM Usage: ~60 bytes (for MAX_TIMERS=4), ~116 bytes (for MAX_TIMERS=8)
  *
  * @note Defined as static in safetimer.c (not exported)
  * @note Initialized to zero at startup (C standard guarantees)
@@ -148,17 +152,17 @@ STATIC void trigger_timer(int slot_index, bsp_tick_t current_tick,
  * @par Memory Usage Validation (Compile-Time):
  *
  * For SC8F072 (176 bytes RAM total):
- *   SafeTimer RAM: 114 bytes (MAX_TIMERS=8)
- *   Remaining:     62 bytes for user + stack
+ *   SafeTimer RAM: 60 bytes (MAX_TIMERS=4)
+ *   Remaining:     116 bytes for user + stack
  *   Status:        ✓ Within 160-byte budget
  *
  * Calculation formula:
- *   RAM = MAX_TIMERS * sizeof(timer_slot_t) + 2
- *       = MAX_TIMERS * 14 + 2 bytes
+ *   RAM = MAX_TIMERS * sizeof(timer_slot_t) + 4
+ *       = MAX_TIMERS * 14 + 4 bytes
  *
- * @warning Increasing MAX_TIMERS beyond 8 may exceed RAM budget!
+ * @warning Increasing MAX_TIMERS beyond 11 may exceed RAM budget!
  */
-#if (MAX_TIMERS * 14 + 2) > 160
+#if (MAX_TIMERS * 14 + 4) > 160
 #error "SafeTimer RAM usage exceeds 160-byte budget!"
 #endif
 

@@ -512,7 +512,6 @@ void safetimer_test_reset_pool(void)
         g_timer_pool.slots[i].active = 0;
     }
     g_timer_pool.used_bitmap = 0;
-    g_timer_pool.reserved = 0;
 }
 #endif
 

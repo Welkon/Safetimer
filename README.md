@@ -3,7 +3,7 @@
 **Lightweight Embedded Timer Library for Resource-Constrained 8-bit MCUs**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.2.3-green.svg)]()
+[![Version](https://img.shields.io/badge/version-1.3.0-green.svg)]()
 [![C99](https://img.shields.io/badge/C-C99-brightgreen.svg)]()
 [![Test Coverage](https://img.shields.io/badge/coverage-96.30%25-brightgreen.svg)]()
 [![Tests](https://img.shields.io/badge/tests-55%20passing-success.svg)]()
@@ -14,12 +14,13 @@ English | [简体中文](README_zh-CN.md)
 
 ## 🎯 Features
 
-- **Minimal RAM Footprint:** Only 58 bytes for 4 concurrent timers (default)
+- **Minimal RAM Footprint:** Only 60 bytes for 4 concurrent timers (v1.3.0)
 - **Small Code Size:** ~0.8KB Flash (query APIs disabled) | ~1.0KB Flash (full featured)
 - **Zero Dynamic Allocation:** No malloc/free, fully static memory
 - **Overflow-Safe:** Handles 32-bit time wraparound automatically ([ADR-005](docs/architecture.md))
 - **Portable:** 3-function BSP interface, works on any MCU
 - **Flexible API:** Core API for explicit control + optional helpers for convenience (v1.1+)
+- **Coroutine Support (v1.3.0):** Stackless coroutines (Protothread-style) + semaphores for async programming
 - **Well-Tested:** 55 unit tests, 96.30% coverage
 - **Production-Ready:** MISRA-C compliant, static analysis clean
 
@@ -162,6 +163,92 @@ int main(void) {
 - ⚡ **Helper API** (`safetimer_helpers.h`): Immediate start (90% of use cases)
 
 See [`examples/helpers_demo/`](examples/helpers_demo/) for detailed comparison.
+
+### 4. Use Coroutines (v1.3.0) 🆕
+
+SafeTimer now supports **stackless coroutines** (Protothread-style) for linear async programming. Perfect for UART timeouts, sensor polling, and state machines.
+
+**Quick Example:**
+
+```c
+#include "safetimer.h"
+#include "safetimer_coro.h"
+
+typedef struct {
+    SAFETIMER_CORO_CONTEXT;  /* Must be first member */
+    int counter;
+} my_coro_ctx_t;
+
+void led_blink_coro(void *user_data) {
+    my_coro_ctx_t *ctx = (my_coro_ctx_t *)user_data;
+
+    SAFETIMER_CORO_BEGIN(ctx);
+
+    while (1) {
+        led_on();
+        SAFETIMER_CORO_SLEEP(100);   /* LED on for 100ms */
+
+        led_off();
+        SAFETIMER_CORO_SLEEP(900);   /* LED off for 900ms */
+
+        ctx->counter++;
+    }
+
+    SAFETIMER_CORO_END();
+}
+
+int main(void) {
+    static my_coro_ctx_t ctx = {0};
+
+    init_timer0();
+
+    /* Create coroutine timer (MUST use TIMER_MODE_REPEAT) */
+    safetimer_handle_t h = safetimer_create(
+        10, TIMER_MODE_REPEAT, led_blink_coro, &ctx
+    );
+    ctx._coro_handle = h;  /* Store handle for SLEEP/WAIT_UNTIL */
+    safetimer_start(h);
+
+    while (1) {
+        safetimer_process();
+    }
+}
+```
+
+**Coroutine Macros:**
+- `SAFETIMER_CORO_SLEEP(ms)` - Sleep for specified milliseconds
+- `SAFETIMER_CORO_WAIT_UNTIL(cond, poll_ms)` - Wait until condition is true
+- `SAFETIMER_CORO_YIELD()` - Explicit yield
+- `SAFETIMER_CORO_RESET()` - Restart coroutine from beginning
+- `SAFETIMER_CORO_EXIT()` - Exit coroutine permanently
+
+**Semaphore Support:**
+
+```c
+#include "safetimer_sem.h"
+
+static volatile safetimer_sem_t data_ready_sem;
+
+/* Producer (interrupt) */
+void uart_rx_isr(void) {
+    SAFETIMER_SEM_SIGNAL(data_ready_sem);
+}
+
+/* Consumer (coroutine) */
+SAFETIMER_CORO_WAIT_SEM(data_ready_sem, 10, 100);  /* Max 1000ms */
+if (data_ready_sem == SAFETIMER_SEM_TIMEOUT) {
+    handle_timeout();
+} else {
+    process_data();
+}
+```
+
+**When to Use:**
+- ✅ **Coroutines:** UART timeouts, sensor polling, multi-step sequences
+- ✅ **Callbacks:** Simple periodic tasks (LED blink, heartbeat)
+- ✅ **StateSmith:** Complex event-driven FSMs
+
+See [`examples/coroutine_demo/`](examples/coroutine_demo/) for complete examples including mixed-mode (callbacks + StateSmith + coroutines).
 
 ---
 
