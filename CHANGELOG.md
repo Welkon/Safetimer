@@ -952,14 +952,6 @@ SafeTimer v1.0.0 is a production-ready embedded timer library for resource-const
   - Timer0 interrupt-driven 1ms tick
   - Example: 3-LED blinking demo
   - SDCC build system
-- **STM8S103** (STMicroelectronics 8-bit MCU)
-  - TIM4 interrupt-driven 1ms tick
-  - Example: 3-LED blinking demo
-  - SDCC/IAR build support
-- **STC8F2K08S2** (STC 8051-compatible MCU)
-  - Timer0 interrupt-driven 1ms tick
-  - Example: 3-LED blinking demo
-  - SDCC build system
 
 #### Documentation (6,273 lines)
 - **README.md** (323 lines) - Quick start and overview
@@ -986,7 +978,7 @@ SafeTimer v1.0.0 is a production-ready embedded timer library for resource-const
 
 #### CI/CD
 - **GitHub Actions workflow** for automated testing
-- **Multi-platform builds** (SC8F072, STM8, STC8)
+- **Multi-platform builds** (SC8F072)
 - **Coverage reporting** with Codecov integration
 - **Static analysis** with cppcheck
 
@@ -1024,9 +1016,7 @@ SafeTimer/
 │   ├── safetimer.c
 │   └── safetimer_internal.h
 ├── examples/          # Hardware examples
-│   ├── sc8f072/
-│   ├── stm8/
-│   └── stc8/
+│   └── sc8f072/
 ├── test/              # Unit tests
 │   ├── test_safetimer_basic.c
 │   ├── test_safetimer_callbacks.c
@@ -1048,7 +1038,7 @@ SafeTimer/
 | Criterion | Status | Details |
 |-----------|--------|---------|
 | Core implementation passes all tests | ✅ | 45/45 tests passing |
-| ≥3 BSP examples | ✅ | SC8F072, STM8, STC8 |
+| ≥3 BSP examples | ✅ | SC8F072 only |
 | Complete user documentation | ✅ | 6,273 lines |
 | Test coverage ≥95% | ✅ | 96.30% |
 | No memory leaks/UB | ✅ | Static memory design |
