@@ -17,7 +17,7 @@ English | [简体中文](README_zh-CN.md)
 - **Minimal RAM Footprint:** Only 60 bytes for 4 concurrent timers (v1.3.0)
 - **Small Code Size:** ~0.8KB Flash (query APIs disabled) | ~1.0KB Flash (full featured)
 - **Zero Dynamic Allocation:** No malloc/free, fully static memory
-- **Overflow-Safe:** Handles 32-bit time wraparound automatically ([ADR-005](docs/architecture.md))
+- **Overflow-Safe:** Handles 32-bit time wraparound automatically (ADR-005)
 - **Portable:** 3-function BSP interface, works on any MCU
 - **Flexible API:** Core API for explicit control + optional helpers for convenience (v1.1+)
 - **Coroutine Support (v1.3.0):** Stackless coroutines (Protothread-style) + semaphores for async programming
@@ -97,7 +97,7 @@ safetimer_get_remaining(h, &remaining_ms);
 safetimer_get_pool_usage(&used, &total);
 ```
 
-**📖 Complete API Reference:** [docs/api_reference.md](docs/api_reference.md)
+**📖 Complete API Reference:** See `include/safetimer.h` for full API documentation
 
 ---
 
@@ -116,16 +116,14 @@ safetimer_get_pool_usage(&used, &total);
 | [BSP Porting Guide](tutorials/bsp-porting.md) | Hardware abstraction implementation |
 | [Architecture Notes](tutorials/architecture-notes.md) | Overflow handling, design decisions |
 
-### Detailed Documentation
+### API Reference
 
-| Document | Description |
-|----------|-------------|
-| [User Guide](docs/user_guide.md) | Comprehensive usage tutorial |
-| [API Reference](docs/api_reference.md) | Complete API documentation |
-| [Porting Guide](docs/porting_guide.md) | BSP implementation details |
-| [Architecture](docs/architecture.md) | Design decisions (ADRs) |
-| [Project Status](docs/project_status.md) | Implementation status |
-| [Epics & Stories](docs/epics_and_stories.md) | Development roadmap |
+See header files in `include/` directory:
+- `safetimer.h` - Core API documentation
+- `safetimer_config.h` - Configuration options
+- `safetimer_coro.h` - Coroutine macros (v1.3.0+)
+- `safetimer_helpers.h` - Helper API (v1.1+)
+- `bsp.h` - BSP interface specification
 
 ---
 
@@ -157,7 +155,7 @@ SafeTimer is highly portable and works on any MCU with:
 - [ ] Timer priority
 - [ ] Performance benchmarks
 
-See [Epics & Stories](docs/epics_and_stories.md) for detailed roadmap.
+See [CHANGELOG.md](CHANGELOG.md) for complete version history.
 
 ---
 
