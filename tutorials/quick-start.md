@@ -73,21 +73,25 @@ SafeTimer supports **three programming models**. Choose based on your task compl
 flowchart TD
     Start([What are you building?])
 
-    Start --> Simple[Simple Periodic Task<br/>LED blink, Heartbeat, Watchdog]
+    Start --> Simple[Simple Periodic Task<br/>LED blink, Heartbeat, Status LED]
     Start --> Sequential[Sequential Delays<br/>Sensor polling, UART timeout]
     Start --> Complex[Event-driven Logic<br/>Protocol FSM, UI flows, >5 states]
+    Start --> Mixed[Multiple Task Types<br/>IoT device, Industrial controller]
 
     Simple --> ModelA[✅ Use Callback Timers]
     Sequential --> ModelB[✅ Use Coroutines]
     Complex --> ModelC[✅ Use StateSmith FSM]
+    Mixed --> ModelMix[✅ Mix Models]
 
     ModelA --> ImplA[See Model A below]
     ModelB --> ImplB[See Model B below]
     ModelC --> ImplC[See Model C below]
+    ModelMix --> ImplMix[See Mixed-Mode Example]
 
     style ModelA fill:#90EE90,stroke:#333,stroke-width:2px
     style ModelB fill:#87CEEB,stroke:#333,stroke-width:2px
     style ModelC fill:#FFB6C1,stroke:#333,stroke-width:2px
+    style ModelMix fill:#DDA0DD,stroke:#333,stroke-width:2px
     style Start fill:#FFE4B5,stroke:#333,stroke-width:2px
 ```
 
@@ -99,7 +103,50 @@ flowchart TD
 | **Coroutines** | Sequential delays | Sensor polling, UART timeout | ⭐⭐ Medium |
 | **StateSmith FSM** | State machines | Protocol handlers, UI flows | ⭐⭐⭐ Advanced |
 
-**💡 Pro Tip:** You can mix all three models in one application! See [Coroutines Tutorial](coroutines.md#mixed-mode-architecture) for examples.
+---
+
+### 🎨 When to Mix Models
+
+**You can combine all three models in one application!** Each timer is independent, so different tasks can use different programming styles.
+
+#### Mixed-Mode Example
+
+```c
+int main(void) {
+    init_timer0();
+
+    /* Model A: Callback for simple periodic task */
+    safetimer_create_started(1000, TIMER_MODE_REPEAT, heartbeat_send, NULL);
+
+    /* Model B: Coroutine for sensor polling sequence */
+    static sensor_ctx_t sensor_ctx = {0};
+    safetimer_handle_t h_sensor = safetimer_create(
+        10, TIMER_MODE_REPEAT, sensor_coro, &sensor_ctx
+    );
+    sensor_ctx._coro_handle = h_sensor;
+    safetimer_start(h_sensor);
+
+    /* Model C: StateSmith FSM for protocol handling */
+    static protocol_fsm_t protocol_fsm = {0};
+    protocol_fsm_init(&protocol_fsm);
+    safetimer_create_started(100, TIMER_MODE_REPEAT, protocol_fsm_tick, &protocol_fsm);
+
+    while (1) {
+        safetimer_process();  /* Processes all timers */
+    }
+}
+```
+
+#### When to Mix
+
+| Scenario | Recommended Mix | Rationale |
+|----------|----------------|-----------|
+| **IoT Device** | Callbacks + Coroutines + FSM | Heartbeat (callback), sensor polling (coroutine), network protocol (FSM) |
+| **Industrial Controller** | Callbacks + FSM | Status LED (callback), control logic (FSM) |
+| **Sensor Node** | Callbacks + Coroutines | Heartbeat (callback), multi-step sensor reading (coroutine) |
+| **Simple Appliance** | Callbacks only | All tasks are simple periodic operations |
+
+**💡 Pro Tip:** Start with callbacks for everything, then upgrade specific tasks to coroutines/FSM as complexity grows. See [Coroutines Tutorial](coroutines.md#mixed-mode-architecture) for detailed examples.
 
 ---
 

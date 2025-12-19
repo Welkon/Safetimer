@@ -525,9 +525,9 @@ Is the logic event-driven with multiple states?
 ```c
 /* Three patterns working together */
 
-/* 1. Callback: Watchdog kicking (simple) */
-void watchdog_cb(void *data) {
-    kick_watchdog();
+/* 1. Callback: Heartbeat transmission (simple) */
+void heartbeat_cb(void *data) {
+    send_heartbeat();
 }
 
 /* 2. Coroutine: Sensor reading (linear sequence) */
@@ -550,7 +550,7 @@ void network_fsm_tick(void *data) {
 
 int main(void) {
     /* Create all timers */
-    safetimer_create_started(500, TIMER_MODE_REPEAT, watchdog_cb, NULL);
+    safetimer_create_started(1000, TIMER_MODE_REPEAT, heartbeat_cb, NULL);
 
     sensor_ctx_t sensor_ctx = {0};
     safetimer_handle_t h_sensor = safetimer_create(
