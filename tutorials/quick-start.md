@@ -32,7 +32,7 @@ Create `safetimer_bsp.c` with these 3 functions:
 > **💡 Naming Tip:** We recommend `safetimer_bsp.c` to avoid conflicts with other libraries. Alternatively, use `myapp_bsp.c` or place in a subdirectory like `bsp/safetimer.c`.
 
 ```c
-#include "bsp.h"
+#include "bsp.h"  /* Provides uint8_t, uint16_t, uint32_t, bsp_tick_t */
 
 static volatile bsp_tick_t s_ticks = 0;
 static volatile uint8_t s_critical_nesting = 0;
@@ -45,16 +45,20 @@ void timer_isr(void) {
 
 bsp_tick_t bsp_get_ticks(void) {
     bsp_tick_t ticks;
-    uint8_t saved_state = EA;  /* Save current interrupt state */
-    EA = 0;                    /* Disable for atomic read */
+    uint8_t saved_state;  /* C89: declare before statements */
+
+    saved_state = EA;     /* Save current interrupt state */
+    EA = 0;               /* Disable for atomic read */
     ticks = s_ticks;
-    EA = saved_state;          /* Restore original state */
+    EA = saved_state;     /* Restore original state */
     return ticks;
 }
 
 void bsp_enter_critical(void) {
-    uint8_t ea_state = EA;
-    EA = 0;  /* Disable interrupts */
+    uint8_t ea_state;  /* C89: declare before statements */
+
+    ea_state = EA;     /* Read before disabling */
+    EA = 0;            /* Disable interrupts */
 
     if (s_critical_nesting == 0) {
         s_saved_interrupt_state = ea_state;  /* Save state on first entry */
@@ -73,6 +77,8 @@ void bsp_exit_critical(void) {
     }
 }
 ```
+
+> **⚠️ C89 Compatibility:** Many embedded compilers (SDCC, HI-TECH, etc.) use C89 which requires all variable declarations at the **beginning of blocks**, before any statements.
 
 **BSP Function Requirements:**
 - `bsp_get_ticks()`: Atomic read of tick counter (preserves interrupt state)

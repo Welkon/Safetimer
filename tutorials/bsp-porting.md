@@ -19,10 +19,16 @@ SafeTimer requires only **3 BSP functions**:
 Create `safetimer_bsp.c`:
 
 ```c
-#include "bsp.h"
+#include "bsp.h"  /* Provides uint8_t, uint16_t, uint32_t, bsp_tick_t */
 
 /* Global tick counter (incremented by timer ISR) */
 static volatile bsp_tick_t s_ticks = 0;
+
+/* Critical section nesting counter */
+static volatile uint8_t s_critical_nesting = 0;
+
+/* Saved interrupt state (before first enter) */
+static volatile uint8_t s_saved_interrupt_state = 0;
 
 /* Hardware timer interrupt (called every 1ms) */
 void timer_isr(void) {
@@ -31,19 +37,39 @@ void timer_isr(void) {
 
 /* BSP Function 1: Get current tick count */
 bsp_tick_t bsp_get_ticks(void) {
-    return s_ticks;
+    bsp_tick_t ticks;
+    uint8_t saved_state;  /* C89: declare before statements */
+
+    saved_state = EA;     /* Save current interrupt state */
+    EA = 0;               /* Disable for atomic read */
+    ticks = s_ticks;
+    EA = saved_state;     /* Restore original state */
+
+    return ticks;
 }
 
-/* BSP Function 2: Enter critical section */
+/* BSP Function 2: Enter critical section (nestable) */
 void bsp_enter_critical(void) {
-    /* TODO: Disable interrupts for your MCU */
-    EA = 0;  /* Example: 8051 */
+    uint8_t ea_state;  /* C89: declare before statements */
+
+    ea_state = EA;     /* Read before disabling */
+    EA = 0;            /* Disable interrupts */
+
+    if (s_critical_nesting == 0) {
+        s_saved_interrupt_state = ea_state;  /* Save only on first entry */
+    }
+    s_critical_nesting++;
 }
 
-/* BSP Function 3: Exit critical section */
+/* BSP Function 3: Exit critical section (nestable) */
 void bsp_exit_critical(void) {
-    /* TODO: Enable interrupts for your MCU */
-    EA = 1;  /* Example: 8051 */
+    if (s_critical_nesting > 0) {
+        EA = 0;  /* Ensure atomic access */
+        s_critical_nesting--;
+        if (s_critical_nesting == 0) {
+            EA = s_saved_interrupt_state;  /* Restore original state */
+        }
+    }
 }
 ```
 
@@ -93,19 +119,26 @@ bsp_tick_t bsp_get_ticks(void) {
 }
 ```
 
-**Atomic implementation (8-bit/16-bit MCUs):**
+**Atomic implementation (8-bit/16-bit MCUs with state preservation):**
 
 ```c
+#include "bsp.h"  /* Provides uint8_t via USE_STDINT_H configuration */
+
 bsp_tick_t bsp_get_ticks(void) {
     bsp_tick_t ticks;
+    uint8_t saved_state;  /* C89: declare before statements */
 
-    bsp_enter_critical();
-    ticks = s_ticks;  /* Multi-byte read - needs protection */
-    bsp_exit_critical();
+    /* Save and disable - preserves caller's interrupt state */
+    saved_state = EA;     /* Or: GIE on PIC, etc. */
+    EA = 0;
+    ticks = s_ticks;      /* Multi-byte read - now atomic */
+    EA = saved_state;     /* Restore (not unconditionally enable!) */
 
     return ticks;
 }
 ```
+
+> **⚠️ C89 Compatibility:** Many embedded compilers (SDCC, HI-TECH, etc.) use C89 which requires all variable declarations at the **beginning of blocks**, before any statements.
 
 ---
 
@@ -128,22 +161,36 @@ void bsp_exit_critical(void) {
 }
 ```
 
-**Nestable implementation:**
+**Nestable implementation with state preservation:**
 
 ```c
-static uint8_t g_critical_nesting = 0;
+static uint8_t s_critical_nesting = 0;
+static uint8_t s_saved_interrupt_state = 0;
 
 void bsp_enter_critical(void) {
+    uint8_t irq_state;  /* C89: declare before statements */
+
+    irq_state = __get_interrupt_state();  /* Read BEFORE disabling */
     __disable_irq();
-    g_critical_nesting++;
+
+    if (s_critical_nesting == 0) {
+        s_saved_interrupt_state = irq_state;  /* Save only on first entry */
+    }
+    s_critical_nesting++;
 }
 
 void bsp_exit_critical(void) {
-    if (--g_critical_nesting == 0) {
-        __enable_irq();
+    if (s_critical_nesting > 0) {
+        __disable_irq();  /* Ensure atomic counter access */
+        s_critical_nesting--;
+        if (s_critical_nesting == 0) {
+            __set_interrupt_state(s_saved_interrupt_state);  /* Restore original */
+        }
     }
 }
 ```
+
+> **Key Point:** This pattern preserves the caller's interrupt state. If interrupts were already disabled before `bsp_enter_critical()`, they remain disabled after `bsp_exit_critical()`. This is safe to call from ISRs.
 
 ---
 
@@ -260,16 +307,21 @@ bsp_tick_t bsp_get_ticks(void) {
 }
 ```
 
-**✅ Solution:**
+**✅ Solution (with state preservation):**
 ```c
 bsp_tick_t bsp_get_ticks(void) {
     bsp_tick_t ticks;
-    EA = 0;            /* Disable interrupts */
-    ticks = s_ticks;   /* Atomic read */
-    EA = 1;            /* Enable interrupts */
+    uint8_t saved_state;  /* C89: declare before statements */
+
+    saved_state = EA;     /* Save current state */
+    EA = 0;               /* Disable interrupts */
+    ticks = s_ticks;      /* Atomic read */
+    EA = saved_state;     /* Restore original state (not always enable!) */
     return ticks;
 }
 ```
+
+> **Why preserve state?** If called from within a critical section where interrupts are already disabled, unconditionally enabling them would break the outer critical section.
 
 ---
 

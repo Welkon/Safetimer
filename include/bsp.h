@@ -21,7 +21,8 @@ extern "C" {
  *
  * Width depends on BSP_TICK_TYPE_16BIT configuration:
  * - BSP_TICK_TYPE_16BIT=0: uint32_t (default) - supports up to 49.7 days
- * - BSP_TICK_TYPE_16BIT=1: uint16_t - supports up to 65.5 seconds, saves 8 bytes RAM
+ * - BSP_TICK_TYPE_16BIT=1: uint16_t - supports up to 65.5 seconds, saves 8
+ * bytes RAM
  *
  * @note MUST represent milliseconds since power-on/reset
  * @note Automatically wraps around at max value (SafeTimer handles this)
@@ -29,19 +30,34 @@ extern "C" {
  * @warning With 16-bit ticks: max timer period is 65535ms (65.5 seconds)
  *          Use safetimer_tick_diff() for correct wraparound handling
  */
-#if USE_STDINT_H
+/**
+ * @brief Fixed-width integer types
+ *
+ * Default: Uses standard <stdint.h> (preferred)
+ * When NO_STDINT_H=1: Uses C89 fallback typedefs for legacy compilers
+ *
+ * @note Most modern compilers support stdint.h (SDCC, Keil, IAR, GCC, etc.)
+ *       Only define NO_STDINT_H=1 for very old compilers without stdint.h
+ */
+#ifndef NO_STDINT_H
 #include <stdint.h>
-#if BSP_TICK_TYPE_16BIT
-typedef uint16_t bsp_tick_t;  /* 16-bit: 0 ~ 65535 ms (65.5 seconds max) */
 #else
-typedef uint32_t bsp_tick_t;  /* 32-bit: 0 ~ 4294967295 ms (49.7 days max) */
+/* C89 fallback: define standard integer types (only for legacy compilers) */
+typedef signed char int8_t;     /*  8-bit signed: -128 ~ 127 */
+typedef signed int int16_t;     /* 16-bit signed (assumes 16-bit int) */
+typedef signed long int32_t;    /* 32-bit signed */
+typedef unsigned char uint8_t;  /*  8-bit unsigned: 0 ~ 255 */
+typedef unsigned int uint16_t;  /* 16-bit unsigned (assumes 16-bit int) */
+typedef unsigned long uint32_t; /* 32-bit unsigned */
 #endif
-#else
+
+/**
+ * @brief BSP tick type selection based on BSP_TICK_TYPE_16BIT
+ */
 #if BSP_TICK_TYPE_16BIT
-typedef unsigned int bsp_tick_t;   /* 16-bit on most 8-bit MCUs */
+typedef uint16_t bsp_tick_t; /* 16-bit: 0 ~ 65535 ms (65.5 seconds max) */
 #else
-typedef unsigned long bsp_tick_t;  /* 32-bit */
-#endif
+typedef uint32_t bsp_tick_t; /* 32-bit: 0 ~ 4294967295 ms (49.7 days max) */
 #endif
 
 /* ========== BSP Functions (USER MUST IMPLEMENT) ========== */
