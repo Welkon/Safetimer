@@ -18,8 +18,10 @@ SafeTimer requires only **3 BSP functions**:
 
 Create `safetimer_bsp.c`:
 
+> **💡 头文件说明：** BSP 实现文件需要 `#include "bsp.h"`。而应用代码（main.c）只需 `#include "safetimer.h"`（已自动包含 bsp.h）。
+
 ```c
-#include "bsp.h"  /* Provides uint8_t, uint16_t, uint32_t, bsp_tick_t */
+#include "bsp.h"  /* BSP实现需要包含bsp.h（提供类型定义） */
 
 /* Global tick counter (incremented by timer ISR) */
 static volatile bsp_tick_t s_ticks = 0;
@@ -451,7 +453,43 @@ See [`examples/`](../examples/) for complete BSP implementations:
 - **SC8F072:** 8-bit 8051-compatible MCU
 - **Coroutine Demo:** Mock BSP for testing
 
-See [`examples/`](../examples/) for complete BSP implementations.
+### main.c 使用 BSP 的完整示例
+
+```c
+#include <your_mcu.h>  /* MCU 寄存器定义 - 必须放最前面 */
+#include "safetimer.h" /* SafeTimer API (已含 bsp.h) */
+
+/* BSP 函数声明 (定义在 bsp_xxx.c 中) */
+void init_system(void);
+void init_timer0(void);
+
+static safetimer_handle_t g_led_timer;
+
+void led_callback(void *user_data) {
+    (void)user_data;
+    toggle_led();
+}
+
+int main(void) {
+    init_system();   /* 初始化系统时钟和GPIO */
+    init_timer0();   /* 初始化1ms定时器中断 */
+
+    g_led_timer = safetimer_create(500, TIMER_MODE_REPEAT, led_callback, ((void *)0));
+    
+    if (g_led_timer != SAFETIMER_INVALID_HANDLE) {
+        safetimer_start(g_led_timer);
+    }
+
+    while (1) {
+        safetimer_process();
+    }
+}
+```
+
+> **💡 关键点：**
+> - MCU 头文件（如 `<sc.h>`）必须放在 `safetimer.h` 之前
+> - 应用代码只需 `#include "safetimer.h"`（已自动包含 `bsp.h`）
+> - BSP 函数需要在使用前声明（避免隐式 `int` 返回类型警告）
 
 ---
 

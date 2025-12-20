@@ -23,6 +23,8 @@ cp SafeTimer/include/safetimer_helpers.h your_project/
 - ✅ **Required (4 files):** safetimer.h, safetimer_config.h, bsp.h, safetimer.c
 - ✅ **Optional (1 file):** safetimer_helpers.h (convenience API, v1.1+)
 
+> **💡 头文件包含关系：** `safetimer.h` 已经自动包含 `bsp.h`。在应用代码（main.c）中只需 `#include "safetimer.h"`，无需再单独引入 `bsp.h`。BSP 实现文件则需要 `#include "bsp.h"`。
+
 ---
 
 ## Step 2: Implement BSP (3 Functions)
@@ -32,7 +34,7 @@ Create `safetimer_bsp.c` with these 3 functions:
 > **💡 Naming Tip:** We recommend `safetimer_bsp.c` to avoid conflicts with other libraries. Alternatively, use `myapp_bsp.c` or place in a subdirectory like `bsp/safetimer.c`.
 
 ```c
-#include "bsp.h"  /* Provides uint8_t, uint16_t, uint32_t, bsp_tick_t */
+#include "bsp.h"  /* BSP实现文件需要包含bsp.h（提供类型定义） */
 
 static volatile bsp_tick_t s_ticks = 0;
 static volatile uint8_t s_critical_nesting = 0;
@@ -228,7 +230,11 @@ Below are examples for each model. Remember: you'll typically use multiple model
 #### Basic Usage (Core API)
 
 ```c
-#include "safetimer.h"
+#include <your_mcu.h>  /* MCU 寄存器定义 - 必须放最前面 */
+#include "safetimer.h" /* SafeTimer API (已含 bsp.h) */
+
+/* BSP 函数声明 (定义在你的 bsp_xxx.c 中) */
+void init_timer0(void);
 
 void led_callback(void *user_data) {
     toggle_led();  /* User code */

@@ -37,7 +37,46 @@ static volatile bit s_saved_interrupt_state = 0;
  * @brief Hardware timer interrupt (called every 1ms)
  * @note Must be configured by user's hardware initialization code
  */
-void interrupt Timer0_Isr(void) { s_ticks++; }
+void interrupt Timer0_Isr(void) {
+  T0IF = 0;    /* Clear Timer0 interrupt flag */
+  TMR0 = 0x06; /* Reload timer for next 1ms (adjust for your clock) */
+  s_ticks++;
+}
+
+/* ========== Hardware Initialization (User-Provided) ========== */
+
+/**
+ * @brief Initialize system clock and GPIO
+ * @note Called from main() before init_timer0()
+ */
+void init_system(void) {
+  /* Configure system clock - 8MHz internal RC */
+  /* Adjust based on your SC8F072 configuration */
+
+  /* Configure GPIO as needed */
+  TRISA = 0xFF; /* All PORTA as input initially */
+  TRISA0 = 0;   /* P0.0 as output (LED) */
+  PORTA = 0xFF; /* LED off (active low) */
+}
+
+/**
+ * @brief Initialize Timer0 for 1ms interrupt
+ *
+ * Configuration for SC8F072 @ 8MHz:
+ * - Timer0 as system tick source
+ * - 1ms interrupt interval
+ *
+ * @note Adjust reload values based on actual clock configuration
+ */
+void init_timer0(void) {
+  T0CON = 0x00; /* Stop timer, configure prescaler */
+  TMR0 = 0x06;  /* Reload value for 1ms */
+  T0IE = 1;     /* Enable Timer0 interrupt */
+  T0IF = 0;     /* Clear interrupt flag */
+  T0CON = 0x80; /* Enable timer */
+
+  GIE = 1; /* Enable global interrupts */
+}
 
 /**
  * @brief Get current system tick count
