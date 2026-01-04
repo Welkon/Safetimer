@@ -89,19 +89,51 @@ static safetimer_pool_t g_timer_pool = {0};
  */
 static volatile uint8_t s_processing = 0;
 
+/**
+ * @brief Currently executing timer handle (for auto-binding coroutines)
+ *
+ * Set to the active handle during callback execution in safetimer_process().
+ * Allows coroutines to discover their own handle via safetimer_get_current_handle().
+ *
+ * RAM cost: +1 byte
+ */
+static safetimer_handle_t g_executing_handle = SAFETIMER_INVALID_HANDLE;
+
 /* ========== Handle Encoding/Decoding (ABA Prevention) ========== */
 
 /**
- * @brief Handle encoding: [generation:3bit][index:5bit]
+ * @brief Dynamic handle encoding based on MAX_TIMERS
  *
- * Generation: 1~7 (0 reserved for INVALID_HANDLE = -1)
- * Index: 0~31 (supports MAX_TIMERS <= 32)
+ * Optimizes bit allocation: uses minimum bits for index, maximizes generation bits.
  *
- * Example: generation=3, index=5 → handle = (3 << 5) | 5 = 101 (0x65)
+ * Examples:
+ * - MAX_TIMERS=8:  [gen:5bit (1~31)][idx:3bit (0~7)]  ← 4x better ABA protection
+ * - MAX_TIMERS=16: [gen:4bit (1~15)][idx:4bit (0~15)] ← 2x better ABA protection
+ * - MAX_TIMERS=32: [gen:3bit (1~7)][idx:5bit (0~31)]  ← Original behavior
+ *
+ * Generation: 1 ~ HANDLE_GEN_MAX (0 reserved for INVALID_HANDLE = -1)
  */
-#define HANDLE_INDEX_MASK 0x1F /* Lower 5 bits: 0b00011111 */
-#define HANDLE_GEN_MASK 0xE0   /* Upper 3 bits: 0b11100000 */
-#define HANDLE_GEN_SHIFT 5
+
+/* Compile-time calculation of required index bits */
+#if MAX_TIMERS <= 2
+  #define HANDLE_INDEX_BITS 1
+#elif MAX_TIMERS <= 4
+  #define HANDLE_INDEX_BITS 2
+#elif MAX_TIMERS <= 8
+  #define HANDLE_INDEX_BITS 3
+#elif MAX_TIMERS <= 16
+  #define HANDLE_INDEX_BITS 4
+#else
+  #define HANDLE_INDEX_BITS 5
+#endif
+
+/* Derive generation bits and masks */
+#define HANDLE_GEN_BITS (8 - HANDLE_INDEX_BITS)
+#define HANDLE_GEN_MAX ((1 << HANDLE_GEN_BITS) - 1)
+
+#define HANDLE_INDEX_MASK ((1 << HANDLE_INDEX_BITS) - 1)
+#define HANDLE_GEN_MASK (((1 << HANDLE_GEN_BITS) - 1) << HANDLE_INDEX_BITS)
+#define HANDLE_GEN_SHIFT HANDLE_INDEX_BITS
 
 #define ENCODE_HANDLE(gen, idx)                                                \
   ((safetimer_handle_t)(((gen) << HANDLE_GEN_SHIFT) | (idx)))
@@ -203,9 +235,9 @@ safetimer_handle_t safetimer_create(uint32_t period_ms, timer_mode_t mode,
 
   slot_index = (uint8_t)slot_result;
 
-  /* Allocate next generation ID (1~7, wraps, 0 reserved for INVALID_HANDLE) */
+  /* Allocate next generation ID (1~HANDLE_GEN_MAX, wraps, 0 reserved) */
   g_timer_pool.next_generation++;
-  if (g_timer_pool.next_generation == 0 || g_timer_pool.next_generation > 7) {
+  if (g_timer_pool.next_generation == 0 || g_timer_pool.next_generation > HANDLE_GEN_MAX) {
     g_timer_pool.next_generation = 1;
   }
   generation = g_timer_pool.next_generation;
@@ -537,6 +569,19 @@ timer_error_t safetimer_advance_period(safetimer_handle_t handle,
 }
 
 /**
+ * @brief Get currently executing timer handle
+ *
+ * Returns the handle of the timer whose callback is currently executing.
+ * Used by coroutine macros for automatic handle binding.
+ *
+ * @return Valid handle if called from within a timer callback
+ * @retval SAFETIMER_INVALID_HANDLE if called outside callback context
+ */
+safetimer_handle_t safetimer_get_current_handle(void) {
+  return g_executing_handle;
+}
+
+/**
  * @brief Process all active timers
  *
  * Implementation details (ADR-005 CRITICAL):
@@ -619,7 +664,10 @@ void safetimer_process(void) {
       bsp_exit_critical();
 
       if (still_active) {
+        /* Set executing handle for coroutine auto-binding */
+        g_executing_handle = ENCODE_HANDLE(g_timer_pool.slots[i].generation, i);
         callback(user_data);
+        g_executing_handle = SAFETIMER_INVALID_HANDLE;
       }
     }
   }

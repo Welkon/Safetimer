@@ -296,6 +296,28 @@ timer_error_t safetimer_advance_period(
 );
 
 /**
+ * @brief Get currently executing timer handle (for coroutine auto-binding)
+ *
+ * Returns the handle of the timer whose callback is currently executing.
+ * Used by SAFETIMER_CORO_BEGIN() to automatically bind coroutine context.
+ *
+ * @return Valid handle if called from within a timer callback
+ * @retval SAFETIMER_INVALID_HANDLE if called outside callback context
+ *
+ * @note Thread-safe: only valid during callback execution
+ * @note Primarily for internal use by coroutine macros
+ *
+ * @par Example (Internal Use):
+ * @code
+ * // Inside SAFETIMER_CORO_BEGIN macro:
+ * if (ctx->_coro_handle == SAFETIMER_INVALID_HANDLE) {
+ *     ctx->_coro_handle = safetimer_get_current_handle();
+ * }
+ * @endcode
+ */
+safetimer_handle_t safetimer_get_current_handle(void);
+
+/**
  * @brief Process all active timers (MUST be called periodically)
  *
  * Checks all active timers against current system tick and triggers
