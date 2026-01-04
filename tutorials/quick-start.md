@@ -19,7 +19,9 @@ cp SafeTimer/src/safetimer.c your_project/
 **File Summary:**
 - ✅ **Required (4 files):** safetimer.h, safetimer_config.h, bsp.h, safetimer.c
 
-> **💡 头文件包含关系：** `safetimer.h` 已经自动包含 `bsp.h`。在应用代码（main.c）中只需 `#include "safetimer.h"`，无需再单独引入 `bsp.h`。BSP 实现文件则需要 `#include "bsp.h"`。
+> **💡 Header Includes:** `safetimer.h` automatically includes `bsp.h`. In application code (main.c), just `#include "safetimer.h"`. BSP implementation files need `#include "bsp.h"`.
+>
+> **⚠️ Configuration Note:** This guide assumes default settings in `safetimer_config.h` (`SAFETIMER_ENABLE_USER_DATA=1`, `SAFETIMER_ENABLE_CORO=1`). If you disable these for optimization, API signatures will change. See [Configuration Guide](configuration-and-tuning.md).
 
 ---
 
@@ -232,6 +234,7 @@ Below are examples for each model. Remember: you'll typically use multiple model
 void init_timer0(void);
 
 void led_callback(void *user_data) {
+    /* Note: Signature changes to 'void led_callback(void)' if SAFETIMER_ENABLE_USER_DATA=0 */
     toggle_led();  /* User code */
 }
 
@@ -307,7 +310,7 @@ SafeTimer supports **stackless coroutines** (Protothread-style) for linear async
 
 **Setup:** No configuration needed - just include the header:
 ```c
-#include "safetimer_coro.h"  // Enables coroutine macros
+#include "safetimer_coro.h"  // Enables coroutine macros (Requires SAFETIMER_ENABLE_CORO=1)
 ```
 
 #### Quick Example: UART Protocol with Timeout

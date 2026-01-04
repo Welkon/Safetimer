@@ -55,11 +55,13 @@ typedef int safetimer_handle_t;
 #define SAFETIMER_INVALID_HANDLE (-1)
 
 /**
- * @brief Timer mode enumeration
+ * @brief Timer operating modes
  */
 typedef enum {
-  TIMER_MODE_ONE_SHOT = 0, /**< Timer fires once and stops */
-  TIMER_MODE_REPEAT = 1    /**< Timer fires repeatedly */
+  TIMER_MODE_REPEAT = 0, /**< Timer restarts automatically */
+#if !SAFETIMER_REPEAT_ONLY
+  TIMER_MODE_ONE_SHOT = 1 /**< Timer stops after expiration */
+#endif
 } timer_mode_t;
 
 /**
@@ -74,9 +76,14 @@ typedef enum {
 
 /**
  * @brief Timer callback function type
- *
- * @param user_data User data pointer passed during timer creation
- *
+ * @param user_data User-provided context pointer (only if enabled)
+ */
+#if SAFETIMER_ENABLE_USER_DATA
+typedef void (*timer_callback_t)(void *user_data);
+#else
+typedef void (*timer_callback_t)(void);
+#endif
+/**
  * @warning CRITICAL RESTRICTIONS (violating these causes system failure):
  * @warning 1. Callback MUST NOT create, delete, or modify other timers
  * (ADR-003)
@@ -103,7 +110,6 @@ typedef enum {
  * }
  * @endcode
  */
-typedef void (*timer_callback_t)(void *user_data);
 
 /* ========== Public API ========== */
 
@@ -132,8 +138,22 @@ typedef void (*timer_callback_t)(void *user_data);
  * }
  * @endcode
  */
+/**
+ * @brief Create a new timer
+ *
+ * @param period_ms Timer period in milliseconds
+ * @param mode      Operating mode (REPEAT or ONE_SHOT if supported)
+ * @param callback  Function to call on expiration
+ * @param user_data Context pointer passed to callback (only if enabled)
+ * @return Handle to the created timer, or SAFETIMER_INVALID_HANDLE if full
+ */
+#if SAFETIMER_ENABLE_USER_DATA
 safetimer_handle_t safetimer_create(uint32_t period_ms, timer_mode_t mode,
                                     timer_callback_t callback, void *user_data);
+#else
+safetimer_handle_t safetimer_create(uint32_t period_ms, timer_mode_t mode,
+                                    timer_callback_t callback);
+#endif
 
 /**
  * @brief Start a timer
@@ -167,6 +187,22 @@ safetimer_handle_t safetimer_create(uint32_t period_ms, timer_mode_t mode,
  * }
  * @endcode
  */
+#if SAFETIMER_ENABLE_CORO
+/**
+ * @brief Get currently executing timer handle (for coroutines)
+ * @return Handle if inside callback, SAFETIMER_INVALID_HANDLE otherwise
+ */
+safetimer_handle_t safetimer_get_current_handle(void);
+
+/**
+ * @brief Advance timer expiration by one period (for coroutines)
+ * @param handle Timer handle
+ * @param new_period_ms New period in milliseconds
+ * @return TIMER_OK on success
+ */
+timer_error_t safetimer_advance_period(safetimer_handle_t handle,
+                                       uint32_t new_period_ms);
+#endif
 timer_error_t safetimer_start(safetimer_handle_t handle);
 
 /**
@@ -292,8 +328,9 @@ timer_error_t safetimer_set_period(safetimer_handle_t handle,
  * @see safetimer_set_period() for "reset from now" behavior
  * @see SAFETIMER_CORO_WAIT() macro in safetimer_coro.h
  */
-timer_error_t safetimer_advance_period(safetimer_handle_t handle,
-                                       uint32_t new_period_ms);
+// This function is now conditionally compiled with SAFETIMER_ENABLE_CORO
+// timer_error_t safetimer_advance_period(safetimer_handle_t handle,
+//                                        uint32_t new_period_ms);
 
 /**
  * @brief Get currently executing timer handle (for coroutine auto-binding)
@@ -315,7 +352,8 @@ timer_error_t safetimer_advance_period(safetimer_handle_t handle,
  * }
  * @endcode
  */
-safetimer_handle_t safetimer_get_current_handle(void);
+// This function is now conditionally compiled with SAFETIMER_ENABLE_CORO
+// safetimer_handle_t safetimer_get_current_handle(void);
 
 /**
  * @brief Process all active timers (MUST be called periodically)
@@ -423,96 +461,69 @@ timer_error_t safetimer_get_pool_usage(int *used_count, int *total_count);
 
 /**
  * @brief Create and immediately start a timer (convenience wrapper)
- *
- * Combines safetimer_create() and safetimer_start() for immediate-start
- * scenarios. If start fails, the timer is automatically deleted to prevent
- * resource leaks.
- *
- * @param period_ms  Timer period in milliseconds (1 ~ 2^31-1)
- * @param mode       TIMER_MODE_ONE_SHOT or TIMER_MODE_REPEAT
- * @param callback   Callback function (can be NULL for delay-only usage)
- * @param user_data  User data passed to callback
- *
- * @return Valid handle if BOTH create AND start succeed
- * @retval SAFETIMER_INVALID_HANDLE if creation or start fails
- *
- * @note Zero-overhead inline function
- * @note NOT suitable for cascaded/conditional timers (use core API)
- * @note Requires ENABLE_HELPER_API=1 in safetimer_config.h
  */
+#if SAFETIMER_ENABLE_USER_DATA
 static inline safetimer_handle_t
 safetimer_create_started(uint32_t period_ms, timer_mode_t mode,
                          timer_callback_t callback, void *user_data) {
   safetimer_handle_t handle =
       safetimer_create(period_ms, mode, callback, user_data);
-
+#else
+static inline safetimer_handle_t
+safetimer_create_started(uint32_t period_ms, timer_mode_t mode,
+                         timer_callback_t callback) {
+  safetimer_handle_t handle = safetimer_create(period_ms, mode, callback);
+#endif
   if (handle != SAFETIMER_INVALID_HANDLE) {
-    timer_error_t err = safetimer_start(handle);
-    if (err != TIMER_OK) {
-      safetimer_delete(handle);
-      return SAFETIMER_INVALID_HANDLE;
-    }
+    safetimer_start(handle);
   }
   return handle;
 }
 
 /**
  * @brief Create and start multiple timers with identical parameters (batch)
- *
- * @param count      Number of timers to create (0~255, must be ≤ pool slots)
- * @param period_ms  Timer period in milliseconds
- * @param mode       TIMER_MODE_ONE_SHOT or TIMER_MODE_REPEAT
- * @param callbacks  Array of callback functions (length = count)
- * @param user_data  Array of user data pointers (length = count)
- * @param handles    Output array for timer handles (length = count)
- *
- * @return Number of timers successfully created and started (uint8_t)
- *
- * @note Partial success is possible (returns < count). Check individual
- * handles.
- * @note Requires ENABLE_HELPER_API=1 in safetimer_config.h
  */
+#if SAFETIMER_ENABLE_USER_DATA
 static inline uint8_t
 safetimer_create_started_batch(uint8_t count, uint32_t period_ms,
                                timer_mode_t mode, timer_callback_t *callbacks,
                                void **user_data, safetimer_handle_t *handles) {
-  uint8_t success_count = 0;
+#else
+static inline uint8_t
+safetimer_create_started_batch(uint8_t count, uint32_t period_ms,
+                               timer_mode_t mode, timer_callback_t *callbacks,
+                               safetimer_handle_t *handles) {
+#endif
   uint8_t i;
+  uint8_t success_count = 0;
 
-  if (handles == NULL || callbacks == NULL) {
+  if (callbacks == NULL || handles == NULL) {
     return 0;
   }
+#if SAFETIMER_ENABLE_USER_DATA
+  if (user_data == NULL) {
+    return 0;
+  }
+#endif
 
   for (i = 0; i < count; i++) {
-    void *data = (user_data != NULL) ? user_data[i] : NULL;
-    handles[i] = safetimer_create_started(period_ms, mode, callbacks[i], data);
-
+#if SAFETIMER_ENABLE_USER_DATA
+    handles[i] =
+        safetimer_create_started(period_ms, mode, callbacks[i], user_data[i]);
+#else
+    handles[i] = safetimer_create_started(period_ms, mode, callbacks[i]);
+#endif
     if (handles[i] != SAFETIMER_INVALID_HANDLE) {
       success_count++;
     }
   }
-
   return success_count;
 }
 
 /**
  * @brief Create-start-check macro for error-checked timer creation
- *
- * @param handle     Variable to store timer handle
- * @param period_ms  Timer period
- * @param mode       Timer mode
- * @param callback   Callback function
- * @param user_data  User data pointer
- * @param error_handler Code to execute on failure (e.g., return, goto)
- *
- * @note Requires ENABLE_HELPER_API=1 in safetimer_config.h
- *
- * @code
- * safetimer_handle_t led_timer;
- * SAFETIMER_CREATE_STARTED_OR(led_timer, 500, TIMER_MODE_REPEAT, blink_led,
- * NULL, { printf("Failed\\n"); return -1; });
- * @endcode
  */
+#if SAFETIMER_ENABLE_USER_DATA
 #define SAFETIMER_CREATE_STARTED_OR(handle, period_ms, mode, callback,         \
                                     user_data, error_handler)                  \
   do {                                                                         \
@@ -522,6 +533,16 @@ safetimer_create_started_batch(uint8_t count, uint32_t period_ms,
       error_handler                                                            \
     }                                                                          \
   } while (0)
+#else
+#define SAFETIMER_CREATE_STARTED_OR(handle, period_ms, mode, callback,         \
+                                    error_handler)                             \
+  do {                                                                         \
+    (handle) = safetimer_create_started((period_ms), (mode), (callback));      \
+    if ((handle) == SAFETIMER_INVALID_HANDLE) {                                \
+      error_handler                                                            \
+    }                                                                          \
+  } while (0)
+#endif
 
 #endif /* ENABLE_HELPER_API */
 

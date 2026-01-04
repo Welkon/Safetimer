@@ -20,27 +20,132 @@
 
 /* ========== Internal Data Structures ========== */
 
+/* ========== Handle Encoding/Decoding (ABA Prevention) ========== */
+
 /**
- * @brief Timer slot structure (15 bytes per timer)
+ * @brief Dynamic handle encoding based on MAX_TIMERS
+ *
+ * Optimizes bit allocation: uses minimum bits for index, maximizes generation
+ * bits.
+ *
+ * Examples:
+ * - MAX_TIMERS=8:  [gen:5bit (1~31)][idx:3bit (0~7)]  ← 4x better ABA
+ * protection
+ * - MAX_TIMERS=16: [gen:4bit (1~15)][idx:4bit (0~15)] ← 2x better ABA
+ * protection
+ * - MAX_TIMERS=32: [gen:3bit (1~7)][idx:5bit (0~31)]  ← Original behavior
+ *
+ * Generation: 1 ~ HANDLE_GEN_MAX (0 reserved for INVALID_HANDLE = -1)
+ */
+
+/* Compile-time calculation of required index bits */
+#if MAX_TIMERS <= 2
+#define HANDLE_INDEX_BITS 1
+#elif MAX_TIMERS <= 4
+#define HANDLE_INDEX_BITS 2
+#elif MAX_TIMERS <= 8
+#define HANDLE_INDEX_BITS 3
+#elif MAX_TIMERS <= 16
+#define HANDLE_INDEX_BITS 4
+#else
+#define HANDLE_INDEX_BITS 5
+#endif
+
+/* Derive generation bits and masks */
+/* CRITICAL: Must cap GEN_BITS at 6 to fit in uint8_t meta with mode+active */
+#define RAW_GEN_BITS (8 - HANDLE_INDEX_BITS)
+#define HANDLE_GEN_BITS (RAW_GEN_BITS > 6 ? 6 : RAW_GEN_BITS)
+#define HANDLE_GEN_MAX ((1 << HANDLE_GEN_BITS) - 1)
+
+#define HANDLE_INDEX_MASK ((1 << HANDLE_INDEX_BITS) - 1)
+#define HANDLE_GEN_MASK (((1 << HANDLE_GEN_BITS) - 1) << HANDLE_INDEX_BITS)
+#define HANDLE_GEN_SHIFT HANDLE_INDEX_BITS
+
+#define ENCODE_HANDLE(gen, idx)                                                \
+  ((safetimer_handle_t)(((gen) << HANDLE_GEN_SHIFT) | (idx)))
+#define DECODE_INDEX(handle) ((uint8_t)((handle) & HANDLE_INDEX_MASK))
+#define DECODE_GEN(handle)                                                     \
+  ((uint8_t)(((handle) & HANDLE_GEN_MASK) >> HANDLE_GEN_SHIFT))
+
+/* Compression Macros */
+#if USE_BITFIELD_META
+/* C Bitfields: Cleaner syntax, but compiler-dependent order */
+typedef struct {
+  uint8_t active : 1;
+  uint8_t mode : 1;
+  uint8_t generation : 6;
+} timer_meta_t;
+
+#define META_INIT(act, mod, gen) {(act), (mod), (gen)}
+#define SLOT_SET_ACTIVE(slot, val) (slot).meta.active = (val)
+#define SLOT_GET_ACTIVE(slot) ((slot).meta.active)
+#define SLOT_SET_MODE(slot, val) (slot).meta.mode = (val)
+#define SLOT_GET_MODE(slot) ((slot).meta.mode)
+#define SLOT_SET_GEN(slot, val) (slot).meta.generation = (val)
+#define SLOT_GET_GEN(slot) ((slot).meta.generation)
+
+#else
+/* Manual Masking: Portable, explicit control */
+typedef uint8_t timer_meta_t;
+
+/* Layout: [gen:6][mode:1][active:1] */
+#define META_MASK_ACTIVE 0x01U
+#define META_MASK_MODE 0x02U
+#define META_MASK_GEN 0xFCU
+#define META_SHIFT_MODE 1
+#define META_SHIFT_GEN 2
+
+#define META_INIT(act, mod, gen)                                               \
+  ((uint8_t)(((act) & 1) | (((mod) & 1) << META_SHIFT_MODE) |                  \
+             (((gen) & 0x3F) << META_SHIFT_GEN)))
+
+#define SLOT_SET_ACTIVE(slot, val)                                             \
+  do {                                                                         \
+    if (val)                                                                   \
+      (slot).meta |= META_MASK_ACTIVE;                                         \
+    else                                                                       \
+      (slot).meta &= (uint8_t)~META_MASK_ACTIVE;                               \
+  } while (0)
+#define SLOT_GET_ACTIVE(slot) (((slot).meta & META_MASK_ACTIVE) != 0)
+
+#define SLOT_SET_MODE(slot, val)                                               \
+  do {                                                                         \
+    if (val)                                                                   \
+      (slot).meta |= META_MASK_MODE;                                           \
+    else                                                                       \
+      (slot).meta &= (uint8_t)~META_MASK_MODE;                                 \
+  } while (0)
+#define SLOT_GET_MODE(slot)                                                    \
+  ((((slot).meta & META_MASK_MODE) >> META_SHIFT_MODE))
+
+#define SLOT_SET_GEN(slot, val)                                                \
+  do {                                                                         \
+    (slot).meta =                                                              \
+        ((slot).meta & ~META_MASK_GEN) | (((val) & 0x3F) << META_SHIFT_GEN);   \
+  } while (0)
+#define SLOT_GET_GEN(slot) (((slot).meta & META_MASK_GEN) >> META_SHIFT_GEN)
+
+#endif
+
+/**
+ * @brief Timer slot structure (13 bytes per timer with meta compression)
  *
  * Memory layout (8-bit MCU, 2-byte pointers):
  *   period:          4 bytes (uint32_t)
  *   expire_time:     4 bytes (uint32_t / bsp_tick_t)
  *   callback:        2 bytes (function pointer)
  *   user_data:       2 bytes (void pointer)
- *   mode:            1 byte  (uint8_t)
- *   active:          1 byte  (uint8_t)
- *   generation:      1 byte  (uint8_t) - ABA problem prevention
- *   TOTAL:          15 bytes/timer
+ *   meta:            1 byte  (active:1 + mode:1 + generation:6)
+ *   TOTAL:          13 bytes/timer (11 bytes w/ 16-bit ticks)
  */
 typedef struct {
   bsp_tick_t period;      /**< Timer period in milliseconds */
   bsp_tick_t expire_time; /**< Expiration timestamp (for overflow algorithm) */
   timer_callback_t callback; /**< User callback function (can be NULL) */
-  void *user_data;           /**< User data passed to callback */
-  uint8_t mode;              /**< TIMER_MODE_ONE_SHOT or TIMER_MODE_REPEAT */
-  uint8_t active;            /**< 1=active, 0=inactive */
-  uint8_t generation; /**< Generation counter (1~7, prevents ABA reuse) */
+#if SAFETIMER_ENABLE_USER_DATA
+  void *user_data; /**< User data passed to callback */
+#endif
+  timer_meta_t meta; /**< Compressed state: active(1)+mode(1)+gen(6) */
 } timer_slot_t;
 
 /**
@@ -62,14 +167,13 @@ typedef uint32_t safetimer_bitmap_t;
  * @brief Timer pool structure (global state)
  *
  * Memory layout:
- *   slots:           MAX_TIMERS * 15 bytes (timer_slot_t array)
+ *   slots:           MAX_TIMERS * 13 bytes (timer_slot_t array)
  *   used_bitmap:     1 or 4 bytes (depends on MAX_TIMERS)
  *   next_generation: 1 byte (uint8_t, global generation counter)
  *
- * For MAX_TIMERS=4:  4*15 + 1 + 1 = 62 bytes
- * For MAX_TIMERS=8:  8*15 + 1 + 1 = 122 bytes
- * For MAX_TIMERS=16: 16*15 + 4 + 1 = 245 bytes
- * For MAX_TIMERS=32: 32*15 + 4 + 1 = 485 bytes
+ * For MAX_TIMERS=4:  4*13 + 1 + 1 = 54 bytes (was 62)
+ * For MAX_TIMERS=8:  8*13 + 1 + 1 = 106 bytes (was 122)
+ * For MAX_TIMERS=16: 16*13 + 4 + 1 = 213 bytes (was 245)
  */
 typedef struct {
   timer_slot_t slots[MAX_TIMERS]; /**< Timer slot array */
@@ -116,49 +220,7 @@ static volatile uint8_t s_processing = 0;
 static safetimer_handle_t g_executing_handle = SAFETIMER_INVALID_HANDLE;
 
 /* ========== Handle Encoding/Decoding (ABA Prevention) ========== */
-
-/**
- * @brief Dynamic handle encoding based on MAX_TIMERS
- *
- * Optimizes bit allocation: uses minimum bits for index, maximizes generation
- * bits.
- *
- * Examples:
- * - MAX_TIMERS=8:  [gen:5bit (1~31)][idx:3bit (0~7)]  ← 4x better ABA
- * protection
- * - MAX_TIMERS=16: [gen:4bit (1~15)][idx:4bit (0~15)] ← 2x better ABA
- * protection
- * - MAX_TIMERS=32: [gen:3bit (1~7)][idx:5bit (0~31)]  ← Original behavior
- *
- * Generation: 1 ~ HANDLE_GEN_MAX (0 reserved for INVALID_HANDLE = -1)
- */
-
-/* Compile-time calculation of required index bits */
-#if MAX_TIMERS <= 2
-#define HANDLE_INDEX_BITS 1
-#elif MAX_TIMERS <= 4
-#define HANDLE_INDEX_BITS 2
-#elif MAX_TIMERS <= 8
-#define HANDLE_INDEX_BITS 3
-#elif MAX_TIMERS <= 16
-#define HANDLE_INDEX_BITS 4
-#else
-#define HANDLE_INDEX_BITS 5
-#endif
-
-/* Derive generation bits and masks */
-#define HANDLE_GEN_BITS (8 - HANDLE_INDEX_BITS)
-#define HANDLE_GEN_MAX ((1 << HANDLE_GEN_BITS) - 1)
-
-#define HANDLE_INDEX_MASK ((1 << HANDLE_INDEX_BITS) - 1)
-#define HANDLE_GEN_MASK (((1 << HANDLE_GEN_BITS) - 1) << HANDLE_INDEX_BITS)
-#define HANDLE_GEN_SHIFT HANDLE_INDEX_BITS
-
-#define ENCODE_HANDLE(gen, idx)                                                \
-  ((safetimer_handle_t)(((gen) << HANDLE_GEN_SHIFT) | (idx)))
-#define DECODE_INDEX(handle) ((uint8_t)((handle) & HANDLE_INDEX_MASK))
-#define DECODE_GEN(handle)                                                     \
-  ((uint8_t)(((handle) & HANDLE_GEN_MASK) >> HANDLE_GEN_SHIFT))
+/* Moved to top of file to support struct definition */
 
 /* ========== Static Function Prototypes ========== */
 
@@ -217,13 +279,23 @@ STATIC int32_t safetimer_tick_diff(bsp_tick_t lhs, bsp_tick_t rhs) {
  * - Timer initialized but NOT started (user must call safetimer_start)
  * - Assigns generation counter to prevent ABA handle reuse (fixes Trap #1)
  */
+#if SAFETIMER_ENABLE_USER_DATA
 safetimer_handle_t safetimer_create(uint32_t period_ms, timer_mode_t mode,
                                     timer_callback_t callback,
                                     void *user_data) {
-  int slot_result; /* C89: temp for find_free_slot result */
-  uint8_t slot_index;
-  uint8_t generation;
+#else
+safetimer_handle_t safetimer_create(uint32_t period_ms, timer_mode_t mode,
+                                    timer_callback_t callback) {
+#endif
   safetimer_handle_t handle;
+  uint8_t slot_index;
+  int free_slot;
+  uint8_t generation;
+
+#if SAFETIMER_REPEAT_ONLY
+  /* Force mode to REPEAT if compiled in Repeat-Only mode */
+  mode = TIMER_MODE_REPEAT;
+#endif
 
 #if ENABLE_PARAM_CHECK
   /* Validate parameters */
@@ -245,14 +317,14 @@ safetimer_handle_t safetimer_create(uint32_t period_ms, timer_mode_t mode,
 
   /* Find free slot */
   bsp_enter_critical();
-  slot_result = find_free_slot();
+  free_slot = find_free_slot();
 
-  if (slot_result < 0) {
+  if (free_slot < 0) {
     bsp_exit_critical();
     return SAFETIMER_INVALID_HANDLE; /* Pool full */
   }
 
-  slot_index = (uint8_t)slot_result;
+  slot_index = (uint8_t)free_slot;
 
   /* Allocate next generation ID (1~HANDLE_GEN_MAX, wraps, 0 reserved) */
   g_timer_pool.next_generation++;
@@ -264,11 +336,13 @@ safetimer_handle_t safetimer_create(uint32_t period_ms, timer_mode_t mode,
 
   /* Initialize timer slot (cast period_ms to bsp_tick_t for 16-bit mode) */
   g_timer_pool.slots[slot_index].period = (bsp_tick_t)period_ms;
-  g_timer_pool.slots[slot_index].mode = (uint8_t)mode;
+  SLOT_SET_MODE(g_timer_pool.slots[slot_index], (uint8_t)mode);
   g_timer_pool.slots[slot_index].callback = callback;
+#if SAFETIMER_ENABLE_USER_DATA
   g_timer_pool.slots[slot_index].user_data = user_data;
-  g_timer_pool.slots[slot_index].active = 0; /* Not started yet */
-  g_timer_pool.slots[slot_index].generation = generation;
+#endif
+  SLOT_SET_ACTIVE(g_timer_pool.slots[slot_index], 0); /* Not started yet */
+  SLOT_SET_GEN(g_timer_pool.slots[slot_index], generation);
   g_timer_pool.used_bitmap |= (BITMAP_ONE << slot_index);
 
   /* Encode handle: [generation:3bit][index:5bit] */
@@ -286,7 +360,7 @@ safetimer_handle_t safetimer_create(uint32_t period_ms, timer_mode_t mode,
       g_timer_pool.next_generation = 1;
     }
     generation = g_timer_pool.next_generation;
-    g_timer_pool.slots[slot_index].generation = generation;
+    SLOT_SET_GEN(g_timer_pool.slots[slot_index], generation);
     handle = ENCODE_HANDLE(generation, slot_index);
   }
 
@@ -326,7 +400,7 @@ timer_error_t safetimer_start(safetimer_handle_t handle) {
   update_expire_time(slot_index, start_tick);
 
   /* Mark as active */
-  g_timer_pool.slots[slot_index].active = 1;
+  SLOT_SET_ACTIVE(g_timer_pool.slots[slot_index], 1);
 
   bsp_exit_critical();
 
@@ -356,7 +430,7 @@ timer_error_t safetimer_stop(safetimer_handle_t handle) {
   slot_index = DECODE_INDEX(handle);
 
   bsp_enter_critical();
-  g_timer_pool.slots[slot_index].active = 0;
+  SLOT_SET_ACTIVE(g_timer_pool.slots[slot_index], 0);
   bsp_exit_critical();
 
   return TIMER_OK;
@@ -387,7 +461,7 @@ timer_error_t safetimer_delete(safetimer_handle_t handle) {
   bsp_enter_critical();
 
   /* Stop timer */
-  g_timer_pool.slots[slot_index].active = 0;
+  SLOT_SET_ACTIVE(g_timer_pool.slots[slot_index], 0);
 
   /* Release slot (generation remains, preventing handle reuse) */
   g_timer_pool.used_bitmap &= ~(BITMAP_ONE << slot_index);
@@ -454,7 +528,7 @@ timer_error_t safetimer_set_period(safetimer_handle_t handle,
   /* If timer is currently running, restart countdown with new period.
    * This is equivalent to "delete + create + start" but preserves handle.
    * Breaks phase-locking intentionally - documented trade-off. */
-  if (g_timer_pool.slots[slot_index].active) {
+  if (SLOT_GET_ACTIVE(g_timer_pool.slots[slot_index])) {
     g_timer_pool.slots[slot_index].expire_time =
         current_tick + (bsp_tick_t)new_period_ms;
   }
@@ -465,17 +539,15 @@ timer_error_t safetimer_set_period(safetimer_handle_t handle,
   return TIMER_OK;
 }
 
+#if SAFETIMER_ENABLE_CORO
 /**
- * @brief Advance timer period (phase-locked, zero cumulative error)
+ * @brief Advance timer expiration by one period (for coroutines)
  *
- * Advances expire_time by the new period, preserving phase-locking.
- * Used internally by SAFETIMER_CORO_WAIT() for zero-drift timing.
+ * Used by coroutines to implement precise delays (SAFETIMER_CORO_WAIT/YIELD).
+ * Moves the expiration time forward without accumulating drift.
  *
- * @param handle Valid timer handle
- * @param new_period_ms New period in milliseconds (1 ~ 2^31-1)
- * @return TIMER_OK on success, error code otherwise
- *
- * @note If timer is inactive, behaves like set_period()
+ * @param handle Timer handle
+ * @return TIMER_OK on success, or error code
  */
 timer_error_t safetimer_advance_period(safetimer_handle_t handle,
                                        uint32_t new_period_ms) {
@@ -506,6 +578,11 @@ timer_error_t safetimer_advance_period(safetimer_handle_t handle,
   if (!validate_handle(handle)) {
     return TIMER_ERR_INVALID; /* Invalid handle or timer deleted */
   }
+#else
+  /* Minimal validation */
+  if (!validate_handle(handle)) {
+    return TIMER_ERR_INVALID;
+  }
 #endif
 
   slot_index = DECODE_INDEX(handle);
@@ -518,14 +595,14 @@ timer_error_t safetimer_advance_period(safetimer_handle_t handle,
   /* Store old period, expire_time, and active state snapshot before updating */
   prev_period = g_timer_pool.slots[slot_index].period;
   old_expire_snapshot = g_timer_pool.slots[slot_index].expire_time;
-  old_active_snapshot = g_timer_pool.slots[slot_index].active;
+  old_active_snapshot = SLOT_GET_ACTIVE(g_timer_pool.slots[slot_index]);
 
   /* Update period field (explicit cast for C89 warning suppression) */
   g_timer_pool.slots[slot_index].period = (bsp_tick_t)new_period_ms;
 
   /* Phase-locked advance: maintain timing relationship to previous expire_time
    */
-  if (g_timer_pool.slots[slot_index].active) {
+  if (SLOT_GET_ACTIVE(g_timer_pool.slots[slot_index])) {
     /* Calculate when the timer SHOULD have expired based on old period.
      * This is overflow-safe because both values are bsp_tick_t. */
     last_expire = old_expire_snapshot - prev_period;
@@ -566,15 +643,18 @@ timer_error_t safetimer_advance_period(safetimer_handle_t handle,
        * verification prevents extreme coincidence where ISR results in same
        * expire_time value. */
       if (g_timer_pool.slots[slot_index].expire_time == old_expire_snapshot &&
-          g_timer_pool.slots[slot_index].active == old_active_snapshot) {
+          SLOT_GET_ACTIVE(g_timer_pool.slots[slot_index]) ==
+              old_active_snapshot) {
         /* ISR didn't interfere, safe to update with catch-up value */
         g_timer_pool.slots[slot_index].expire_time = new_expire;
       }
       /* else: ISR modified timer state, keep ISR's value */
-    } else {
-      /* No catch-up needed, update directly */
+    }
+#if !SAFETIMER_REPEAT_ONLY
+    else { /* No catch-up needed, update directly */
       g_timer_pool.slots[slot_index].expire_time = new_expire;
     }
+#endif
   } else {
     /* Timer not active: no previous phase to preserve, behave like set_period()
      */
@@ -586,7 +666,9 @@ timer_error_t safetimer_advance_period(safetimer_handle_t handle,
 
   return TIMER_OK;
 }
+#endif /* SAFETIMER_ENABLE_CORO */
 
+#if SAFETIMER_ENABLE_CORO
 /**
  * @brief Get currently executing timer handle
  *
@@ -599,6 +681,7 @@ timer_error_t safetimer_advance_period(safetimer_handle_t handle,
 safetimer_handle_t safetimer_get_current_handle(void) {
   return g_executing_handle;
 }
+#endif /* SAFETIMER_ENABLE_CORO */
 
 /**
  * @brief Process all active timers (call periodically from main loop)
@@ -622,13 +705,25 @@ void safetimer_process(void) {
 
   for (i = 0; i < MAX_TIMERS; i++) {
     timer_callback_t callback; /* C89: declare before statements */
-    void *user_data;           /* C89: declare before statements */
-    int should_invoke;         /* C89: declare before statements */
-    int still_active;          /* C89: declare before statements */
+#if SAFETIMER_ENABLE_USER_DATA
+    void *user_data; /* C89: declare before statements */
+#endif
+    int should_invoke;    /* C89: declare before statements */
+    uint8_t captured_gen; /* C89: declare before statements */
+#if !SAFETIMER_REPEAT_ONLY
+    uint8_t captured_mode; /* C89: declare before statements */
+#endif
+    int valid; /* C89: declare before statements */
 
     callback = NULL;
+#if SAFETIMER_ENABLE_USER_DATA
     user_data = NULL;
+#endif
     should_invoke = 0;
+    captured_gen = 0;
+#if !SAFETIMER_REPEAT_ONLY
+    captured_mode = 0;
+#endif
 
     /*
      * Copy slot state under the BSP critical section (prevents races with
@@ -637,7 +732,7 @@ void safetimer_process(void) {
     bsp_enter_critical();
 
     /* Skip inactive timers */
-    if (!g_timer_pool.slots[i].active) {
+    if (!SLOT_GET_ACTIVE(g_timer_pool.slots[i])) {
       bsp_exit_critical();
       continue;
     }
@@ -645,22 +740,14 @@ void safetimer_process(void) {
     /*
      * ADR-005: Signed Difference Comparison Algorithm (updated for
      * 16-bit/32-bit)
-     *
-     * Check: safetimer_tick_diff(current_tick, expire_time) >= 0
-     *
-     * This handles wraparound correctly for both tick widths:
-     * - 32-bit: current=1000, expire=500 → diff=500 ≥ 0 ✓
-     * - 32-bit wraparound: current=95, expire=4294967295 → diff=96 ≥ 0 ✓
-     * - 16-bit wraparound: current=1, expire=65535 → diff=2 ≥ 0 ✓
-     *
-     * Why safetimer_tick_diff() is required:
-     * - For 32-bit ticks: (int32_t)(current - expire) works correctly
-     * - For 16-bit ticks: Must subtract in uint16_t then sign-extend to int32_t
-     *   Direct cast (int32_t)(current - expire) would be wrong!
      */
     if (safetimer_tick_diff(current_tick, g_timer_pool.slots[i].expire_time) >=
         0) {
-      /* Timer expired - trigger it */
+      /* Timer expired - capture state and trigger it */
+      captured_gen = SLOT_GET_GEN(g_timer_pool.slots[i]);
+#if !SAFETIMER_REPEAT_ONLY
+      captured_mode = SLOT_GET_MODE(g_timer_pool.slots[i]);
+#endif
       trigger_timer(i, current_tick, &callback, &user_data);
       should_invoke = 1;
     }
@@ -669,18 +756,46 @@ void safetimer_process(void) {
 
     /* Execute callback OUTSIDE critical section */
     if (should_invoke && callback != NULL) {
-      /* Double-check active state to prevent TOCTOU race (fixes Trap #6)
-       * Scenario: After releasing critical section, an ISR might call stop().
-       * Without this check, we'd execute callback on a stopped timer. */
+      /* Double-check validity to prevent TOCTOU race (fixes Trap #6)
+       * Use generation counter to detect if timer was deleted/reused.
+       * For REPEAT timers: must still be active (user didn't stop it).
+       * For ONE_SHOT timers: trigger_timer() set active=0, so only check gen.
+       */
       bsp_enter_critical();
-      still_active = g_timer_pool.slots[i].active;
+
+      valid = (SLOT_GET_GEN(g_timer_pool.slots[i]) == captured_gen);
+
+      if (valid) {
+#if !SAFETIMER_REPEAT_ONLY
+        if (captured_mode == TIMER_MODE_REPEAT) {
+          if (!SLOT_GET_ACTIVE(g_timer_pool.slots[i])) {
+            valid = 0; /* User stopped it */
+          }
+        }
+        /* Else: ONE_SHOT, active is 0 (by us) or 1 (user restart), both valid
+         */
+#else
+        /* REPEAT ONLY: Must be active */
+        if (!SLOT_GET_ACTIVE(g_timer_pool.slots[i])) {
+          valid = 0;
+        }
+#endif
+      }
       bsp_exit_critical();
 
-      if (still_active) {
+      if (valid) {
+#if SAFETIMER_ENABLE_CORO
         /* Set executing handle for coroutine auto-binding */
-        g_executing_handle = ENCODE_HANDLE(g_timer_pool.slots[i].generation, i);
+        g_executing_handle = ENCODE_HANDLE(captured_gen, i);
+#endif
+#if SAFETIMER_ENABLE_USER_DATA
         callback(user_data);
+#else
+        callback();
+#endif
+#if SAFETIMER_ENABLE_CORO
         g_executing_handle = SAFETIMER_INVALID_HANDLE;
+#endif
       }
     }
   }
@@ -710,7 +825,7 @@ timer_error_t safetimer_get_status(safetimer_handle_t handle, int *is_running) {
   slot_index = DECODE_INDEX(handle);
 
   bsp_enter_critical();
-  *is_running = (int)g_timer_pool.slots[slot_index].active;
+  *is_running = (int)SLOT_GET_ACTIVE(g_timer_pool.slots[slot_index]);
   bsp_exit_critical();
 
   return TIMER_OK;
@@ -739,7 +854,7 @@ timer_error_t safetimer_get_remaining(safetimer_handle_t handle,
 
   bsp_enter_critical();
 
-  if (!g_timer_pool.slots[slot_index].active) {
+  if (!SLOT_GET_ACTIVE(g_timer_pool.slots[slot_index])) {
     /* Stopped timer */
     *remaining_ms = 0;
     bsp_exit_critical();
@@ -810,11 +925,21 @@ void safetimer_test_reset_pool(void) {
     g_timer_pool.slots[i].period = 0;
     g_timer_pool.slots[i].expire_time = 0;
     g_timer_pool.slots[i].callback = NULL;
+#if SAFETIMER_ENABLE_USER_DATA
     g_timer_pool.slots[i].user_data = NULL;
-    g_timer_pool.slots[i].mode = 0;
-    g_timer_pool.slots[i].active = 0;
+#endif
+    /* Use explicit memset or set meta to 0? Just set individual flag macros or
+     * simpler: */
+#if USE_BITFIELD_META
+    g_timer_pool.slots[i].meta.mode = 0;
+    g_timer_pool.slots[i].meta.active = 0;
+    g_timer_pool.slots[i].meta.generation = 0;
+#else
+    g_timer_pool.slots[i].meta = 0;
+#endif
   }
   g_timer_pool.used_bitmap = 0;
+  g_timer_pool.next_generation = 1;
 }
 #endif
 
@@ -846,9 +971,9 @@ STATIC int validate_handle(safetimer_handle_t handle) {
     return 0;
   }
 
-  /* Generation check (ABA prevention) */
-  if (g_timer_pool.slots[slot_index].generation != handle_gen) {
-    return 0; /* Handle is from a previous allocation cycle */
+  /* Check generation */
+  if (handle_gen != SLOT_GET_GEN(g_timer_pool.slots[slot_index])) {
+    return 0; /* Generation mismatch (timer deleted/reused) */
   }
 
   return 1;
@@ -927,14 +1052,23 @@ STATIC void trigger_timer(uint8_t slot_index, bsp_tick_t current_tick,
     *callback_out = g_timer_pool.slots[slot_index].callback;
   }
 
+#if SAFETIMER_ENABLE_USER_DATA
   if (user_data_out != NULL) {
     *user_data_out = g_timer_pool.slots[slot_index].user_data;
   }
+#endif
 
-  if (g_timer_pool.slots[slot_index].mode == TIMER_MODE_ONE_SHOT) {
+#if SAFETIMER_REPEAT_ONLY
+  /* FORCE REPEAT: advance until next expiration */
+  /* Remove ONE_SHOT check to save ROM */
+  {
+#else
+  if (SLOT_GET_MODE(g_timer_pool.slots[slot_index]) == TIMER_MODE_ONE_SHOT) {
     /* ONE_SHOT: stop timer */
-    g_timer_pool.slots[slot_index].active = 0;
+    SLOT_SET_ACTIVE(g_timer_pool.slots[slot_index], 0);
   } else {
+#endif
+    /* REPEAT: advance until the next expiration is in the future */
     /* REPEAT: advance until the next expiration is in the future */
 #if SAFETIMER_ENABLE_CATCHUP
     /* Catch-up mode: fire callbacks for each missed interval */
@@ -952,7 +1086,7 @@ STATIC void trigger_timer(uint8_t slot_index, bsp_tick_t current_tick,
     /* Snapshot values inside critical section */
     old_expire = g_timer_pool.slots[slot_index].expire_time;
     period = g_timer_pool.slots[slot_index].period;
-    old_active = g_timer_pool.slots[slot_index].active;
+    old_active = SLOT_GET_ACTIVE(g_timer_pool.slots[slot_index]);
 
     /* Release critical section before expensive division */
     bsp_exit_critical();
@@ -983,10 +1117,10 @@ STATIC void trigger_timer(uint8_t slot_index, bsp_tick_t current_tick,
      * calculation (fixes Stop-Start Overwrite Race + ABA variant).
      *
      * Double verification prevents extreme coincidence where ISR stop+start
-     * results in same expire_time value (ABA variant). Checking both
+     * results in     * expire_time value (ABA variant). Checking both
      * expire_time and active ensures we detect any ISR interference. */
     if (g_timer_pool.slots[slot_index].expire_time == old_expire &&
-        g_timer_pool.slots[slot_index].active == old_active) {
+        SLOT_GET_ACTIVE(g_timer_pool.slots[slot_index]) == old_active) {
       g_timer_pool.slots[slot_index].expire_time = new_expire;
     }
     /* else: ISR modified timer state, keep ISR's value */

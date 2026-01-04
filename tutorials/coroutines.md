@@ -1,6 +1,8 @@
 # Coroutines Tutorial (v1.3.0+)
 
-**Prerequisites:** Read [Quick Start Guide](quick-start.md) first for basic coroutine usage.
+**Prerequisites:**
+1. Read [Quick Start Guide](quick-start.md) first for basic coroutine usage.
+2. Ensure `SAFETIMER_ENABLE_CORO = 1` in `safetimer_config.h` (Default: 1).
 
 This tutorial covers **advanced coroutine features**: semaphores, StateSmith integration, and complex patterns.
 

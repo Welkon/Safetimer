@@ -13,6 +13,46 @@
 #ifndef SAFETIMER_CONFIG_H
 #define SAFETIMER_CONFIG_H
 
+/* ========== RAM/ROM Optimization Configuration ========== */
+
+/**
+ * @brief Enable coroutine support
+ *
+ * 0 = Disabled (saves ~200 bytes ROM, removes safetimer_advance_period)
+ * 1 = Enabled (default, supports safetimer_coro.h)
+ */
+#ifndef SAFETIMER_ENABLE_CORO
+#define SAFETIMER_ENABLE_CORO 1
+#endif
+
+/**
+ * @brief Enable user_data context in timer callbacks
+ *
+ * 0 = Disabled (saves ~2 bytes/timer RAM, modifies API signature)
+ * 1 = Enabled (default, standard void* user_data in callback)
+ *
+ * NOTE: Disabling this changes timer_callback_t signature:
+ *   Enabled:  void (*timer_callback_t)(void *user_data);
+ *   Disabled: void (*timer_callback_t)(void);
+ */
+#ifndef SAFETIMER_ENABLE_USER_DATA
+#define SAFETIMER_ENABLE_USER_DATA 1
+#endif
+
+/**
+ * @brief Restrict to REPEAT mode only
+ *
+ * 0 = Disabled (default, supports ONE_SHOT and REPEAT)
+ * 1 = Enabled (saves ~50 bytes ROM, removes ONE_SHOT logic)
+ *
+ * NOTE: Enabling this removes TIMER_MODE_ONE_SHOT enum.
+ */
+#ifndef SAFETIMER_REPEAT_ONLY
+#define SAFETIMER_REPEAT_ONLY 0
+#endif
+
+/* ========== API Configuration ========== */
+
 /* ========== Timer Pool Configuration ========== */
 
 /**
@@ -23,13 +63,14 @@
  *
  * RAM Impact (persistent, global variables):
  *   - Bitmap: 1 byte (MAX_TIMERS<=8) or 4 bytes (MAX_TIMERS>8)
- *   - Per timer slot: 15 bytes (32-bit tick) or 11 bytes (16-bit tick)
+ *   - Per timer slot: 13 bytes (32-bit tick) or 9 bytes (16-bit tick)
+ * [Compressed]
  *   - Overhead: 2 bytes (s_processing + g_executing_handle)
  *
- *   MAX_TIMERS=4:  62 bytes (32-bit) | 46 bytes (16-bit)
- *   MAX_TIMERS=8:  122 bytes (32-bit) | 90 bytes (16-bit)
- *   MAX_TIMERS=16: 246 bytes (32-bit) | 182 bytes (16-bit)
- *   MAX_TIMERS=32: 486 bytes (32-bit) | 358 bytes (16-bit)
+ *   MAX_TIMERS=4:  56 bytes (32-bit) | 40 bytes (16-bit)  (Includes overhead)
+ *   MAX_TIMERS=8:  108 bytes (32-bit) | 74 bytes (16-bit)
+ *   MAX_TIMERS=16: 215 bytes (32-bit) | 151 bytes (16-bit)
+ *   MAX_TIMERS=32: 423 bytes (32-bit) | 295 bytes (16-bit)
  *
  * Stack Usage (temporary, during function calls):
  *   - safetimer_process(): ~20-30 bytes (local variables)
@@ -258,7 +299,7 @@
  * @note Both modes save 2 bytes per timer
  */
 #ifndef USE_BITFIELD_META
-#define USE_BITFIELD_META 0
+#define USE_BITFIELD_META 1
 #endif
 
 /**
@@ -348,6 +389,21 @@ typedef signed long int32_t;
 /* Validate SAFETIMER_ABA_PROTECTION */
 #if SAFETIMER_ABA_PROTECTION < 0 || SAFETIMER_ABA_PROTECTION > 2
 #error "SAFETIMER_ABA_PROTECTION must be 0, 1, or 2"
+#endif
+
+/* Validate SAFETIMER_ENABLE_CORO */
+#if SAFETIMER_ENABLE_CORO != 0 && SAFETIMER_ENABLE_CORO != 1
+#error "SAFETIMER_ENABLE_CORO must be 0 or 1"
+#endif
+
+/* Validate SAFETIMER_ENABLE_USER_DATA */
+#if SAFETIMER_ENABLE_USER_DATA != 0 && SAFETIMER_ENABLE_USER_DATA != 1
+#error "SAFETIMER_ENABLE_USER_DATA must be 0 or 1"
+#endif
+
+/* Validate SAFETIMER_REPEAT_ONLY */
+#if SAFETIMER_REPEAT_ONLY != 0 && SAFETIMER_REPEAT_ONLY != 1
+#error "SAFETIMER_REPEAT_ONLY must be 0 or 1"
 #endif
 
 /* ========== Configuration Summary ========== */

@@ -28,16 +28,22 @@ This guide covers SafeTimer's compile-time configuration options and resource op
 
 ### RAM Scalability
 
-Configurable via `MAX_TIMERS`:
+Configurable via `MAX_TIMERS` and optimization flags.
 
-| Configuration | RAM Usage | Use Case |
-|---------------|-----------|----------|
-| 4 timers (default) | 58 bytes | Typical applications |
-| 8 timers | 114 bytes | Medium complexity |
-| 16 timers | 226 bytes | High complexity |
-| 32 timers | 450 bytes | Maximum capacity |
+**Formula per timer:**
+- **Standard (32-bit ticks):** 13 bytes
+- **Low RAM (16-bit ticks):** 9 bytes
+- **No User Data:** Subtract 2 bytes (on 16-bit arch) or 4 bytes (on 32-bit arch)
 
-**Formula:** `RAM = MAX_TIMERS × 14 + 2 bytes`
+**Overhead:** 2 bytes fixed (bitmap + processing flag) for <= 8 timers.
+
+| Configuration | 16-bit Tick | 32-bit Tick |
+|---------------|-------------|-------------|
+| 4 timers (default) | 40 bytes | 56 bytes |
+| 8 timers | 74 bytes | 108 bytes |
+| 4 timers (Ultra-Opt*) | **30 bytes** | - |
+
+*\*Ultra-Opt: 16-bit ticks + No User Data*
 
 ---
 
@@ -127,17 +133,54 @@ Control tick counter size for ultra-low RAM mode.
 #define BSP_TICK_TYPE_16BIT 1  /* Ultra-low RAM mode */
 ```
 
-| Value | Tick Type | Max Period | RAM Savings | Use Case |
-|-------|-----------|------------|-------------|----------|
-| **0** (default) | uint32_t | 49.7 days | 0 bytes | Standard MCUs (>256B RAM) |
-| **1** | uint16_t | 65.5 seconds | ~20 bytes | Ultra-low RAM (<160B) |
+| Value | Tick Type | Max Period | RAM Savings |
+|-------|-----------|------------|-------------|
+| **0** (default) | uint32_t | 49.7 days | 0 bytes |
+| **1** | uint16_t | 65.5 seconds | ~20 bytes |
 
-**Memory Impact (16-bit vs 32-bit):**
-- Per timer slot: 4 bytes saved (period + expire_time)
-- BSP tick counter: 4 bytes saved
-- Total for MAX_TIMERS=4: ~20 bytes saved
+**Memory Impact:** Saves 4 bytes per timer + 4 bytes global.
 
-⚠️ **Warning:** With 16-bit ticks, timer periods > 65535ms will be truncated! Enable `ENABLE_PARAM_CHECK=1` to catch this at runtime.
+⚠️ **Warning:** Periods > 65535ms will be truncated in 16-bit mode!
+
+---
+
+### SAFETIMER_ENABLE_USER_DATA (default: 1)
+**New in v1.3.1**
+
+Removes the `void *user_data` context from timer callbacks and creation API.
+
+```c
+#define SAFETIMER_ENABLE_USER_DATA 0
+```
+
+- **Enabled (1):** Standard callbacks `void cb(void *user_data)`.
+- **Disabled (0):** Simplified callbacks `void cb(void)`.
+- **Savings:** Saves pointer storage (2-4 bytes) per timer.
+
+### SAFETIMER_REPEAT_ONLY (default: 0)
+**New in v1.3.1**
+
+Restricts library to support ONLY `TIMER_MODE_REPEAT`.
+
+```c
+#define SAFETIMER_REPEAT_ONLY 1
+```
+
+- **Enabled (1):** Removes all logic for `TIMER_MODE_ONE_SHOT`.
+- **Savings:** ~50 bytes Flash code size.
+
+### SAFETIMER_ENABLE_CORO (default: 1)
+**New in v1.3.1**
+
+Controls compilation of coroutine support helpers.
+
+```c
+#define SAFETIMER_ENABLE_CORO 0
+```
+
+- **Enabled (1):** Supports `safetimer_coro.h`.
+- **Disabled (0):** Removes coroutine binding logic.
+- **Savings:** ~200 bytes Flash code size.
 
 ---
 
@@ -177,11 +220,12 @@ Control standard integer type definitions.
 #define MAX_TIMERS 2
 #define ENABLE_QUERY_API 0
 #define ENABLE_PARAM_CHECK 0
-#define BSP_TICK_TYPE_16BIT 1  /* 16-bit ticks */
+#define BSP_TICK_TYPE_16BIT 1
+#define SAFETIMER_ENABLE_USER_DATA 0 /* Save pointer overhead */
 ```
 
-**Result:** ~0.8KB Flash, ~32 bytes RAM
-**Limitation:** Max timer period 65.5 seconds
+**Result:** ~0.8KB Flash, **~16 bytes RAM** (for 2 timers)
+**Limitation:** Max period 65.5s, no user context in callbacks.
 
 ---
 
@@ -235,10 +279,13 @@ C51 DEFINE(MAX_TIMERS=4,ENABLE_PARAM_CHECK=0) ...
 Calculate RAM usage for your configuration:
 
 ```
-RAM = MAX_TIMERS × 14 + 2
+RAM = MAX_TIMERS × SlotSize + 2
 Flash = Base + (QUERY_API × 200) + (PARAM_CHECK × 150)
-  where Base = 600 bytes
 ```
+**SlotSize:**
+- 32-bit + UserData: 13 bytes
+- 16-bit + UserData: 9 bytes
+- 16-bit No UserData: 7 bytes
 
 **Examples:**
 - `MAX_TIMERS=4, QUERY=0, PARAM=0`: 60 bytes RAM, ~750 bytes Flash

@@ -41,6 +41,34 @@ void led_off_cb(void *data) {
 }
 ```
 
+### Pattern 3: Ultra-Minimal Sensor Node (Optimization)
+
+Use `SAFE_TIMER_REPEAT_ONLY` and `SAFE_TIMER_ENABLE_USER_DATA=0` for extreme optimization:
+
+**Config:**
+```c
+#define MAX_TIMERS 2
+#define BSP_TICK_TYPE_16BIT 1
+#define SAFETIMER_REPEAT_ONLY 1
+#define SAFETIMER_ENABLE_USER_DATA 0
+```
+
+**Implementation:**
+```c
+/* No user_data argument in callback */
+void sensor_task(void) {
+    read_sensor();
+}
+
+void main(void) {
+    /* Create repeating timer (One-Shot not supported) */
+    safetimer_create_started(1000, TIMER_MODE_REPEAT, sensor_task);
+    
+    while(1) safetimer_process();
+}
+```
+**Savings:** Total RAM < 40 bytes. Ideal for ATtiny13/PIC10.
+
 ---
 
 ## ❌ What SafeTimer is NOT For
