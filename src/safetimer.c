@@ -44,20 +44,36 @@ typedef struct {
 } timer_slot_t;
 
 /**
+ * @brief Bitmap type selection based on MAX_TIMERS
+ *
+ * Automatically selects the smallest type that can hold MAX_TIMERS bits:
+ * - MAX_TIMERS <= 8:  uint8_t  (saves 3 bytes RAM)
+ * - MAX_TIMERS <= 32: uint32_t (supports more timers)
+ */
+#if MAX_TIMERS <= 8
+typedef uint8_t safetimer_bitmap_t;
+#define BITMAP_ONE 1U
+#else
+typedef uint32_t safetimer_bitmap_t;
+#define BITMAP_ONE 1UL
+#endif
+
+/**
  * @brief Timer pool structure (global state)
  *
  * Memory layout:
  *   slots:           MAX_TIMERS * 15 bytes (timer_slot_t array)
- *   used_bitmap:     4 bytes  (uint32_t, supports up to 32 timers)
- *   next_generation: 1 byte   (uint8_t, global generation counter)
- *   TOTAL:           MAX_TIMERS * 15 + 5 bytes
+ *   used_bitmap:     1 or 4 bytes (depends on MAX_TIMERS)
+ *   next_generation: 1 byte (uint8_t, global generation counter)
  *
- * For MAX_TIMERS=4: 4*15 + 5 = 65 bytes
- * For MAX_TIMERS=8: 8*15 + 5 = 125 bytes
+ * For MAX_TIMERS=4:  4*15 + 1 + 1 = 62 bytes
+ * For MAX_TIMERS=8:  8*15 + 1 + 1 = 122 bytes
+ * For MAX_TIMERS=16: 16*15 + 4 + 1 = 245 bytes
+ * For MAX_TIMERS=32: 32*15 + 4 + 1 = 485 bytes
  */
 typedef struct {
   timer_slot_t slots[MAX_TIMERS]; /**< Timer slot array */
-  uint32_t used_bitmap;    /**< Bitmap of used slots (bit 0 = slot 0, etc.) */
+  safetimer_bitmap_t used_bitmap; /**< Bitmap of used slots */
   uint8_t next_generation; /**< Next generation ID (1~7, wraps, 0 reserved) */
 } safetimer_pool_t;
 
@@ -69,8 +85,7 @@ typedef struct {
 /* ========== Global Variables ========== */
 
 /**
- * @brief Global timer pool (65 bytes for MAX_TIMERS=4, 125 bytes for
- * MAX_TIMERS=8)
+ * @brief Global timer pool
  *
  * Initialized to zero by C standard (all timers inactive at startup).
  * next_generation starts at 0 and will be incremented to 1 on first use.
@@ -254,7 +269,7 @@ safetimer_handle_t safetimer_create(uint32_t period_ms, timer_mode_t mode,
   g_timer_pool.slots[slot_index].user_data = user_data;
   g_timer_pool.slots[slot_index].active = 0; /* Not started yet */
   g_timer_pool.slots[slot_index].generation = generation;
-  g_timer_pool.used_bitmap |= (1UL << slot_index);
+  g_timer_pool.used_bitmap |= (BITMAP_ONE << slot_index);
 
   /* Encode handle: [generation:3bit][index:5bit] */
   handle = ENCODE_HANDLE(generation, slot_index);
@@ -375,7 +390,7 @@ timer_error_t safetimer_delete(safetimer_handle_t handle) {
   g_timer_pool.slots[slot_index].active = 0;
 
   /* Release slot (generation remains, preventing handle reuse) */
-  g_timer_pool.used_bitmap &= ~(1UL << slot_index);
+  g_timer_pool.used_bitmap &= ~(BITMAP_ONE << slot_index);
 
   bsp_exit_critical();
 
@@ -751,7 +766,7 @@ timer_error_t safetimer_get_pool_usage(int *used_count, int *total_count) {
 
   /* Count set bits in bitmap */
   for (i = 0; i < MAX_TIMERS; i++) {
-    if (g_timer_pool.used_bitmap & (1UL << i)) {
+    if (g_timer_pool.used_bitmap & (BITMAP_ONE << i)) {
       count++;
     }
   }
@@ -818,7 +833,7 @@ STATIC int validate_handle(safetimer_handle_t handle) {
   }
 
   /* Allocation check */
-  if ((g_timer_pool.used_bitmap & (1UL << slot_index)) == 0) {
+  if ((g_timer_pool.used_bitmap & (BITMAP_ONE << slot_index)) == 0) {
     return 0;
   }
 
@@ -842,7 +857,7 @@ STATIC int find_free_slot(void) {
   uint8_t i;
 
   for (i = 0; i < MAX_TIMERS; i++) {
-    if ((g_timer_pool.used_bitmap & (1UL << i)) == 0) {
+    if ((g_timer_pool.used_bitmap & (BITMAP_ONE << i)) == 0) {
       return i; /* Found free slot */
     }
   }

@@ -10,7 +10,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### 📝 Documentation
 
 **Cleanup and Consolidation:**
-- Removed `.bmad/` directory (AI workflow methodology, not part of library)
 - Removed `docs/user_guide.md` (consolidated into `tutorials/` directory)
 - Cleaned up `docs/architecture.md` YAML frontmatter metadata
 - Updated documentation structure in README files
@@ -53,7 +52,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 1 年 = 3153.6 秒（**52.6 分钟**）❌❌
 - **电池供电产品：** 长期运行导致低功耗唤醒失准、RTC 时间漂移、通信窗口错过
 
-**初始判断错误：** v1.3.0 文档声称"90% 用例可接受"，但经用户质疑和 Codex 分析，结论应为：
+**初始判断错误：** v1.3.0 文档声称"90% 用例可接受"，但经用户质疑和技术分析，结论应为：
 - ✅ **可接受：** 运行时长 < 1 小时的临时任务
 - ⚠️ **边缘：** 1 天运行（误差约 9 秒）
 - ❌ **不可接受：** > 1 周运行、电池供电产品、任何长期系统
@@ -171,7 +170,7 @@ while (current_tick >= expire_time) {
 
 #### 致谢
 
-本次修复源于用户对长期累积误差的合理质疑（"电池供电产品怎么办？"），Codex 分析验证了问题严重性并提供实现草案。v1.3.0 的"90% 用例可接受"判断已修正。
+本次修复源于用户对长期累积误差的合理质疑（"电池供电产品怎么办？"），技术分析验证了问题严重性。v1.3.0 的"90% 用例可接受"判断已修正。
 
 ---
 
@@ -255,9 +254,9 @@ if (data_ready_sem == SAFETIMER_SEM_TIMEOUT) {
 }
 ```
 
-### 🐛 修复：关键架构缺陷（Codex/Gemini 联合审计）
+### 🐛 修复：关键架构缺陷
 
-经过 Codex 和 Gemini 双模型代码审计，发现并修复了 7 个严重问题：
+经过代码审计，发现并修复了 7 个严重问题：
 
 **CRITICAL 级别修复：**
 1. **Bitmap 溢出风险**：`used_bitmap` 从 `uint8_t`（仅支持 8 个定时器）扩展为 `uint32_t`（支持最多 32 个定时器），防止 `MAX_TIMERS > 8` 时的内存损坏。
@@ -317,7 +316,7 @@ if (data_ready_sem == SAFETIMER_SEM_TIMEOUT) {
 
 ### 🙏 致谢
 
-本版本协程功能参考了 Tiny-Macro-OS 的 Protothread 设计，架构审计由 Anthropic Codex 和 Google Gemini 模型协作完成。
+本版本协程功能参考了 Tiny-Macro-OS 的 Protothread 设计。
 
 ---
 
@@ -462,7 +461,7 @@ void on_button_press(void) {
 - Flash: +40-60 字节（保留双分支逻辑）
 
 **设计决策：**
-- 基于 Codex 分析推荐（2025-12-17）
+- 基于技术分析推荐（2025-12-17）
 - 观察 v1.2.5 用户反馈后再实施
 - 预计 2026-Q1 发布
 
@@ -605,7 +604,7 @@ expire_time += period;  // 零累计误差
 
 **验证：**
 - 溢出安全性：通过 ADR-005 有符号差值算法验证
-- 边界情况：Codex 分析确认无副作用
+- 边界情况：代码审查确认无副作用
 
 #### 影响范围
 
@@ -843,7 +842,7 @@ void bsp_exit_critical(void) {
 This change optimizes SafeTimer for the target platform (SC8F072 with 176 bytes RAM) based on:
 1. ✅ Real-world usage analysis (75% of applications use ≤4 timers)
 2. ✅ RAM constraint analysis (4 timers leaves 74B user space vs 18B with 8)
-3. ✅ Codex professional optimization evaluation
+3. ✅ Professional optimization evaluation
 4. ✅ Zero test failures (55/55 tests passing)
 
 **Impact:**

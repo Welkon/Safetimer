@@ -319,13 +319,7 @@ typedef signed long int32_t;
 #endif
 
 #if MAX_TIMERS > 32
-#error "MAX_TIMERS must be <= 32 (bitmap limitation in v1.0)"
-#endif
-
-/* Warn about RAM usage */
-#if MAX_TIMERS > 8
-#error                                                                         \
-    "Current implementation only supports up to 8 timers (due to uint8_t bitmap). To use more, upgrade used_bitmap to uint32_t."
+#error "MAX_TIMERS must be <= 32 (bitmap limitation)"
 #endif
 
 /* Validate ENABLE_PARAM_CHECK */

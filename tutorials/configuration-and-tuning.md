@@ -62,6 +62,26 @@ Control availability of query/diagnostic APIs.
 
 ---
 
+### ENABLE_HELPER_API (default: 1)
+
+Control availability of convenience helper functions.
+
+```c
+#define ENABLE_HELPER_API 0  /* Disable convenience functions */
+```
+
+**Enabled (1, default):**
+- **Provides:** `safetimer_create_started()`, `safetimer_create_started_batch()`, `SAFETIMER_CREATE_STARTED_OR()`
+- **Cost:** 0 bytes (inline functions, only compiled if actually used)
+- **Best for:** Most applications benefit from simpler create+start API
+
+**Disabled (0):**
+- **Removes:** All convenience wrappers
+- **Only core APIs available:** `create()`, `start()`, `delete()`, `process()`
+- **Best for:** Strict minimal API surface, explicit control preferred
+
+---
+
 ### ENABLE_PARAM_CHECK (default: 1)
 
 Control parameter validation in API calls.

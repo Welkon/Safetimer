@@ -375,7 +375,6 @@ examples/sc8f072/verification/
 ---
 
 **Created:** 2025-12-13  
-**Implementation Agent:** Claude Code  
 **Verification Responsibility:** End User (requires SDCC + hardware/simulator)
 
 ---

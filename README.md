@@ -17,7 +17,7 @@ English | [简体中文](README_zh-CN.md)
 - **Minimal RAM Footprint:** Only 60 bytes for 4 concurrent timers (v1.3.0)
 - **Small Code Size:** ~0.8KB Flash (query APIs disabled) | ~1.0KB Flash (full featured)
 - **Zero Dynamic Allocation:** No malloc/free, fully static memory
-- **Overflow-Safe:** Handles 32-bit time wraparound automatically (ADR-005)
+- **Overflow-Safe:** Handles 32-bit time wraparound automatically
 - **Portable:** 3-function BSP interface, works on any MCU
 - **Flexible API:** Core API for explicit control + optional helpers for convenience (v1.1+)
 - **Coroutine Support (v1.3.0):** Stackless coroutines (Protothread-style) + semaphores for async programming

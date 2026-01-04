@@ -293,6 +293,8 @@ int main(void) {
 - `safetimer_create_started_batch()` - Batch create multiple timers
 - `SAFETIMER_CREATE_STARTED_OR()` - Macro with error handling
 
+> **💡 Configuration:** These functions require `ENABLE_HELPER_API=1` (default). Set to `0` in `safetimer_config.h` to disable and use only core APIs.
+
 See [`examples/helpers_demo/`](../examples/helpers_demo/) for detailed comparison.
 
 ---
