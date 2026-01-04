@@ -53,7 +53,6 @@ int main(void) {
     safetimer_handle_t h = safetimer_create(
         10, TIMER_MODE_REPEAT, sensor_task_coro, &ctx
     );
-    ctx._coro_handle = h;  /* Store handle for SLEEP/WAIT_UNTIL */
     safetimer_start(h);
 
     while (1) {
@@ -181,6 +180,78 @@ SAFETIMER_CORO_BEGIN(ctx);
     start_operation();
 SAFETIMER_CORO_END();
 ```
+
+**4. Protocol Handshaking / Authentication**
+```c
+typedef struct {
+    SAFETIMER_CORO_CONTEXT;
+    uint32_t challenge;
+    bsp_tick_t start_time;
+    uint8_t retries;
+} auth_ctx_t;
+
+void auth_handshake(void *user_data) {
+    auth_ctx_t *ctx = (auth_ctx_t *)user_data;
+    SAFETIMER_CORO_BEGIN(ctx);
+
+    while (1) {
+        /* Step 1: Send Challenge */
+        ctx->challenge = generate_nonce();
+        uart_send_challenge(ctx->challenge);
+
+        /* Step 2: Wait for Response (5s timeout) */
+        ctx->start_time = bsp_get_ticks();
+        SAFETIMER_CORO_WAIT_UNTIL(
+            uart_has_data() || (elapsed_ms(ctx->start_time) > 5000),
+            50
+        );
+
+        /* Step 3: Verify Signature */
+        if (uart_has_data() && verify_signature(ctx->challenge)) {
+            unlock_system();
+            ctx->retries = 0;
+            SAFETIMER_CORO_SLEEP(10000);  /* Authenticated state */
+        } else {
+            /* Step 4: Exponential Backoff */
+            ctx->retries++;
+            SAFETIMER_CORO_SLEEP(1000 * ctx->retries);  /* 1s, 2s, 3s... */
+        }
+    }
+
+    SAFETIMER_CORO_END();
+}
+```
+
+**Why use coroutines for authentication?**
+- ✅ Non-blocking: System remains responsive during authentication
+- ✅ State persistence: Retry counter survives across function calls
+- ✅ Timeout handling: Prevents indefinite waiting
+- ✅ Linear backoff: Built-in anti-DoS protection (1s → 2s → 3s)
+- ❌ Without coroutines: Requires complex global state machine + manual timeout tracking
+
+## ⏱️ Macro Timing vs. Micro Timing
+
+### Two Timing Levels
+
+**1. Macro Timing (Transaction Level)**
+- Scale: 1ms to seconds
+- Mechanism: `SAFETIMER_CORO_SLEEP()`, `WAIT_UNTIL()`
+- Behavior: **Yielding** - allows other tasks to run
+- Use for: UART response waits, sensor warmup, retry delays
+
+**2. Micro Timing (Bit Level)**
+- Scale: 1µs to 1ms
+- Mechanism: `bsp_delay_us()`, hardware blocking delays
+- Behavior: **Blocking** - keeps CPU for protocol integrity
+- Use for: Bit-banging, inter-byte spacing, 1-Wire signaling
+
+### Why This Matters
+
+If you use `SAFETIMER_CORO_SLEEP(1)` for a 1ms protocol delay, other tasks may run. A 2ms task turns your "1ms delay" into 3ms, breaking the protocol.
+
+**Rule:** Block for bits, Yield for transactions.
+
+---
 
 ### ❌ Avoid Coroutines For
 
@@ -463,7 +534,6 @@ int main(void) {
     safetimer_handle_t h_sensor = safetimer_create(
         10, TIMER_MODE_REPEAT, sensor_coro, &sensor_ctx
     );
-    sensor_ctx._coro_handle = h_sensor;
     safetimer_start(h_sensor);
 
     network_fsm_t net_fsm = {0};
@@ -480,10 +550,9 @@ int main(void) {
 ## ⚠️ Important Constraints
 
 1. **MUST use TIMER_MODE_REPEAT** - Coroutines require repeating timers
-2. **Store handle in context** - Required for SLEEP/WAIT_UNTIL macros
-3. **Context must be static** - Coroutine state persists across invocations
-4. **No blocking calls** - Coroutine body must return quickly
-5. **SAFETIMER_CORO_CONTEXT first** - Must be first member of context struct
+2. **Context must be static** - Coroutine state persists across invocations
+3. **No blocking calls** - Coroutine body must return quickly
+4. **SAFETIMER_CORO_CONTEXT first** - Must be first member of context struct
 
 ---
 
