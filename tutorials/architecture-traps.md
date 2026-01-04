@@ -393,15 +393,15 @@ void auth_task(void *user_data) {
             ctx->retries++;
             if (ctx->retries >= 3) {
                 /* Hard lockout after 3 failures */
-                SAFETIMER_CORO_SLEEP(10000);
+                SAFETIMER_CORO_WAIT(10000);
                 ctx->retries = 0;
             } else {
                 /* Exponential backoff: 1s, 2s, 3s */
-                SAFETIMER_CORO_SLEEP(1000 * ctx->retries);
+                SAFETIMER_CORO_WAIT(1000 * ctx->retries);
             }
         } else {
             ctx->retries = 0;  /* Success - reset */
-            SAFETIMER_CORO_SLEEP(10000);
+            SAFETIMER_CORO_WAIT(10000);
         }
     }
 

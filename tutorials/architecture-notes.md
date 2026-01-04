@@ -240,7 +240,7 @@ SafeTimer uses **Protothread-style** coroutines:
 #define SAFETIMER_CORO_BEGIN(ctx) \
     switch ((ctx)->_coro_lc) { case 0:
 
-#define SAFETIMER_CORO_SLEEP(ms) do { \
+#define SAFETIMER_CORO_WAIT(ms) do { \
     safetimer_advance_period((ctx)->_coro_handle, (ms)); \
     (ctx)->_coro_lc = __LINE__; return; \
     case __LINE__:; \
@@ -255,7 +255,7 @@ SafeTimer uses **Protothread-style** coroutines:
 /* User code */
 SAFETIMER_CORO_BEGIN(ctx);
     led_on();
-    SAFETIMER_CORO_SLEEP(100);
+    SAFETIMER_CORO_WAIT(100);
     led_off();
 SAFETIMER_CORO_END();
 

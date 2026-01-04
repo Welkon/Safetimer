@@ -249,7 +249,7 @@ timer_error_t safetimer_set_period(
  * - `safetimer_advance_period()`: expire_time += new_period (preserves phase)
  *
  * **Use Cases:**
- * - Coroutine SAFETIMER_CORO_SLEEP() (called internally by macro)
+ * - Coroutine SAFETIMER_CORO_WAIT() (called internally by macro)
  * - Any periodic task requiring zero-drift timing (LED blink, sensor polling)
  * - Long-running battery-powered applications (eliminates drift over days/months)
  *
@@ -281,14 +281,14 @@ timer_error_t safetimer_set_period(
  * @par Example (internal coroutine use):
  * @code
  * // User code:
- * SAFETIMER_CORO_SLEEP(100);  // Sleeps exactly 100ms per cycle
+ * SAFETIMER_CORO_WAIT(100);  // Sleeps exactly 100ms per cycle
  *
  * // Macro expansion (calls advance_period internally):
  * safetimer_advance_period(ctx->_coro_handle, 100);
  * @endcode
  *
  * @see safetimer_set_period() for "reset from now" behavior
- * @see SAFETIMER_CORO_SLEEP() macro in safetimer_coro.h
+ * @see SAFETIMER_CORO_WAIT() macro in safetimer_coro.h
  */
 timer_error_t safetimer_advance_period(
     safetimer_handle_t  handle,

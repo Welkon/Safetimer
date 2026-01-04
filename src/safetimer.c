@@ -458,7 +458,7 @@ timer_error_t safetimer_set_period(safetimer_handle_t handle,
  * - Thread-safe with BSP critical section protection
  *
  * Use cases:
- * - Coroutine SAFETIMER_CORO_SLEEP() for zero-drift periodic tasks
+ * - Coroutine SAFETIMER_CORO_WAIT() for zero-drift periodic tasks
  * - Any scenario requiring strict phase-locking (LED blink, sensor polling)
  *
  * Difference from safetimer_set_period():
@@ -478,7 +478,7 @@ timer_error_t safetimer_set_period(safetimer_handle_t handle,
  * @par Example:
  * @code
  * // Coroutine internal use (via macro)
- * SAFETIMER_CORO_SLEEP(100);  // Uses advance_period() internally
+ * SAFETIMER_CORO_WAIT(100);  // Uses advance_period() internally
  * @endcode
  */
 timer_error_t safetimer_advance_period(safetimer_handle_t handle,

@@ -174,7 +174,7 @@ SafeTimer 现已支持零栈协程（stackless coroutines），基于 Duff's Dev
 - `SAFETIMER_CORO_BEGIN(ctx)` - 开始协程体
 - `SAFETIMER_CORO_END()` - 结束协程体
 - `SAFETIMER_CORO_YIELD()` - 显式让出执行权
-- `SAFETIMER_CORO_SLEEP(ms)` - 睡眠指定毫秒
+- `SAFETIMER_CORO_WAIT(ms)` - 等待指定毫秒
 - `SAFETIMER_CORO_WAIT_UNTIL(cond, poll_ms)` - 等待条件成立
 - `SAFETIMER_CORO_RESET()` - 重启协程
 - `SAFETIMER_CORO_EXIT()` - 永久退出协程
@@ -211,9 +211,9 @@ void led_coro(void *data) {
     SAFETIMER_CORO_BEGIN(ctx);
     while(1) {
         led_on();
-        SAFETIMER_CORO_SLEEP(100);
+        SAFETIMER_CORO_WAIT(100);
         led_off();
-        SAFETIMER_CORO_SLEEP(900);
+        SAFETIMER_CORO_WAIT(900);
     }
     SAFETIMER_CORO_END();
 }

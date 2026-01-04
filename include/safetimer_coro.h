@@ -7,7 +7,7 @@
  * @license MIT
  *
  * This is an ADAPTER layer that integrates the standalone coro_base.h
- * coroutines with SafeTimer's timing features (SLEEP, WAIT_UNTIL).
+ * coroutines with SafeTimer's timing features (WAIT, WAIT_UNTIL).
  *
  * ## Architecture:
  * - Standalone coroutines: Use coro_base.h directly (zero dependencies)
@@ -16,7 +16,7 @@
  * ## Key Features:
  * - Extends coro_base.h with timer handle binding
  * - Automatic handle binding (no manual assignment needed)
- * - Zero-drift SLEEP via safetimer_advance_period()
+ * - Zero-drift WAIT via safetimer_advance_period()
  * - Backward compatible with existing code
  *
  * ## Usage Pattern:
@@ -32,7 +32,7 @@
  *     SAFETIMER_CORO_BEGIN(ctx);  // Auto-binds handle on first run
  *     while(1) {
  *         toggle_led();
- *         SAFETIMER_CORO_SLEEP(500);  // Zero-drift timing
+ *         SAFETIMER_CORO_WAIT(500);  // Zero-drift timing
  *         ctx->counter++;
  *     }
  *     SAFETIMER_CORO_END();
@@ -113,7 +113,7 @@ extern "C" {
 #define SAFETIMER_CORO_YIELD() CORO_YIELD()
 
 /**
- * @brief Sleep for specified milliseconds
+ * @brief Wait for specified milliseconds
  *
  * Sets timer period to `ms` and yields. Timer must be in TIMER_MODE_REPEAT.
  *
@@ -148,11 +148,11 @@ extern "C" {
  *
  * @par Example:
  * @code
- * SAFETIMER_CORO_SLEEP(1000);  // Sleep exactly 1 second per cycle
- * led_toggle();                // Zero cumulative drift over time
+ * SAFETIMER_CORO_WAIT(1000);  // Wait exactly 1 second per cycle
+ * led_toggle();               // Zero cumulative drift over time
  * @endcode
  */
-#define SAFETIMER_CORO_SLEEP(ms) do { \
+#define SAFETIMER_CORO_WAIT(ms) do { \
     if ((ctx)->_coro_handle != SAFETIMER_INVALID_HANDLE && \
         (ctx)->_coro_handle != 0) { \
         safetimer_advance_period((ctx)->_coro_handle, (ms)); \
@@ -160,6 +160,13 @@ extern "C" {
     (ctx)->_coro_lc = __LINE__; return; \
     case __LINE__:; \
 } while(0)
+
+/**
+ * @brief DEPRECATED: Use SAFETIMER_CORO_WAIT instead
+ * @deprecated Renamed to SAFETIMER_CORO_WAIT for semantic consistency
+ * @note This alias will be removed in v2.0.0
+ */
+#define SAFETIMER_CORO_SLEEP(ms) SAFETIMER_CORO_WAIT(ms)
 
 /**
  * @brief Wait until condition is true

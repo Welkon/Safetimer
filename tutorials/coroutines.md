@@ -6,6 +6,87 @@ This tutorial covers **advanced coroutine features**: semaphores, StateSmith int
 
 ---
 
+## 🧩 Standalone Usage (Without SafeTimer)
+
+SafeTimer's coroutine module is **modular** - you can use `coro_base.h` independently in **any C project** without SafeTimer.
+
+### Why Use Standalone Coroutines?
+
+- **Zero Dependencies**: Pure C89 macros, no scheduler required
+- **Minimal RAM**: Only 2 bytes per coroutine
+- **Portable**: Works on any platform
+- **Perfect for**: State machines, parsers, menu systems, game AI
+
+### Quick Example
+
+```c
+#include "coro_base.h"
+
+typedef struct {
+    CORO_CONTEXT;  /* Expands to: uint16_t _coro_lc */
+    int counter;
+} counter_t;
+
+void my_coroutine(counter_t *ctx) {
+    CORO_BEGIN(ctx);
+
+    ctx->counter = 0;
+    while (ctx->counter < 5) {
+        printf("Count: %d\n", ctx->counter++);
+        CORO_YIELD();  /* Pause here, resume on next call */
+    }
+
+    CORO_EXIT();  /* Permanent exit */
+    CORO_END();
+}
+
+int main(void) {
+    counter_t ctx = {0};
+
+    /* Manual scheduling - call repeatedly */
+    while (!CORO_IS_EXITED(&ctx)) {
+        my_coroutine(&ctx);
+    }
+}
+```
+
+### Available Macros (Standalone)
+
+| Macro | Description |
+|-------|-------------|
+| `CORO_CONTEXT` | Context base (2 bytes) |
+| `CORO_BEGIN(ctx)` | Start coroutine body |
+| `CORO_END()` | End coroutine body |
+| `CORO_YIELD()` | Pause and return |
+| `CORO_RESET()` | Restart from beginning |
+| `CORO_EXIT()` | Exit permanently |
+| `CORO_IS_EXITED(ctx)` | Check if exited |
+
+**No timing features** - You control when to call the coroutine.
+
+### Complete Standalone Examples
+
+See [`examples/coro_standalone/`](../examples/coro_standalone/) for:
+- State machine patterns
+- Counter examples
+- Build instructions for C89 projects
+
+### When to Add SafeTimer?
+
+If you need **timing features** (delays, polling intervals), upgrade to `safetimer_coro.h`:
+
+```c
+#include "safetimer_coro.h"  /* Extends coro_base.h */
+
+/* Now you have timing macros: */
+SAFETIMER_CORO_WAIT(500);         /* Wait 500ms */
+SAFETIMER_CORO_WAIT_UNTIL(cond, 10);  /* Poll condition every 10ms */
+```
+
+See the rest of this tutorial for timer-integrated features.
+
+---
+
 ## 📚 Advanced Example: Multi-Task Coordination
 
 ```c
@@ -26,17 +107,17 @@ void sensor_task_coro(void *user_data) {
     while (1) {
         /* Step 1: Initialize sensor */
         sensor_init();
-        SAFETIMER_CORO_SLEEP(100);   /* Wait 100ms for sensor warmup */
+        SAFETIMER_CORO_WAIT(100);   /* Wait 100ms for sensor warmup */
 
         /* Step 2: Read sensor data */
         ctx->sensor_data = sensor_read();
-        SAFETIMER_CORO_SLEEP(50);    /* Wait 50ms between reads */
+        SAFETIMER_CORO_WAIT(50);    /* Wait 50ms between reads */
 
         /* Step 3: Process and transmit */
         uart_send(ctx->sensor_data);
 
         /* Step 4: Wait for next cycle */
-        SAFETIMER_CORO_SLEEP(1000);  /* Poll every 1 second */
+        SAFETIMER_CORO_WAIT(1000);  /* Poll every 1 second */
 
         ctx->counter++;
     }
@@ -61,7 +142,7 @@ int main(void) {
 }
 ```
 
-**Note:** Basic coroutine macros (`SLEEP`, `YIELD`, `RESET`, `EXIT`) are covered in [Quick Start](quick-start.md#model-b-coroutines-v130).
+**Note:** Basic coroutine macros (`WAIT`, `YIELD`, `RESET`, `EXIT`) are covered in [Quick Start](quick-start.md#model-b-coroutines-v130).
 
 ---
 
@@ -164,9 +245,9 @@ SAFETIMER_CORO_END();
 ```c
 SAFETIMER_CORO_BEGIN(ctx);
     sensor_start();
-    SAFETIMER_CORO_SLEEP(50);      /* Warmup delay */
+    SAFETIMER_CORO_WAIT(50);      /* Warmup delay */
     data = sensor_read();
-    SAFETIMER_CORO_SLEEP(1000);    /* Next poll */
+    SAFETIMER_CORO_WAIT(1000);    /* Next poll */
 SAFETIMER_CORO_END();
 ```
 
@@ -174,21 +255,22 @@ SAFETIMER_CORO_END();
 ```c
 SAFETIMER_CORO_BEGIN(ctx);
     power_on();
-    SAFETIMER_CORO_SLEEP(500);
+    SAFETIMER_CORO_WAIT(500);
     module_init();
-    SAFETIMER_CORO_SLEEP(1000);
+    SAFETIMER_CORO_WAIT(1000);
     start_operation();
 SAFETIMER_CORO_END();
 ```
 
-**4. Protocol Handshaking / Authentication**
+**4. Protocol Handshaking / Authentication (Event-Driven)**
 ```c
 typedef struct {
     SAFETIMER_CORO_CONTEXT;
     uint32_t challenge;
-    bsp_tick_t start_time;
     uint8_t retries;
 } auth_ctx_t;
+
+static volatile safetimer_sem_t auth_rx_sem;  /* UART RX event semaphore */
 
 void auth_handshake(void *user_data) {
     auth_ctx_t *ctx = (auth_ctx_t *)user_data;
@@ -199,22 +281,25 @@ void auth_handshake(void *user_data) {
         ctx->challenge = generate_nonce();
         uart_send_challenge(ctx->challenge);
 
-        /* Step 2: Wait for Response (5s timeout) */
-        ctx->start_time = bsp_get_ticks();
-        SAFETIMER_CORO_WAIT_UNTIL(
-            uart_has_data() || (elapsed_ms(ctx->start_time) > 5000),
-            50
-        );
+        /* Step 2: Wait for Response (Event-Driven, 5s timeout) */
+        SAFETIMER_CORO_WAIT_SEM(auth_rx_sem, 50, 100);  /* 50ms × 100 = 5s */
 
-        /* Step 3: Verify Signature */
-        if (uart_has_data() && verify_signature(ctx->challenge)) {
+        if (auth_rx_sem == SAFETIMER_SEM_TIMEOUT) {
+            /* Handle timeout */
+            ctx->retries++;
+            SAFETIMER_CORO_WAIT(1000 * ctx->retries);  /* 1s, 2s, 3s... */
+            continue;
+        }
+
+        /* Step 3: Verify Signature (Successfully woken by semaphore) */
+        if (verify_signature(ctx->challenge)) {
             unlock_system();
             ctx->retries = 0;
-            SAFETIMER_CORO_SLEEP(10000);  /* Authenticated state */
+            SAFETIMER_CORO_WAIT(10000);  /* Authenticated state */
         } else {
             /* Step 4: Exponential Backoff */
             ctx->retries++;
-            SAFETIMER_CORO_SLEEP(1000 * ctx->retries);  /* 1s, 2s, 3s... */
+            SAFETIMER_CORO_WAIT(1000 * ctx->retries);  /* 1s, 2s, 3s... */
         }
     }
 
@@ -222,12 +307,13 @@ void auth_handshake(void *user_data) {
 }
 ```
 
-**Why use coroutines for authentication?**
-- ✅ Non-blocking: System remains responsive during authentication
-- ✅ State persistence: Retry counter survives across function calls
-- ✅ Timeout handling: Prevents indefinite waiting
-- ✅ Linear backoff: Built-in anti-DoS protection (1s → 2s → 3s)
-- ❌ Without coroutines: Requires complex global state machine + manual timeout tracking
+**Why use event-driven semaphores over polling?**
+- ✅ **Efficiency**: No wasted CPU cycles evaluating `uart_has_data()` 100 times per timeout
+- ✅ **Responsiveness**: Task resumes immediately when `SIGNAL` is called, not at next 50ms poll
+- ✅ **Power savings**: Allows deeper sleep modes (system knows no tasks are ready)
+- ✅ **Code simplicity**: No manual `bsp_get_ticks()` / `elapsed_ms()` tracking
+- ✅ **Lower jitter**: Critical for protocols with tight response-to-ACK windows
+- ❌ Without semaphores: Polling wastes cycles and increases response latency
 
 ## ⏱️ Macro Timing vs. Micro Timing
 
@@ -235,7 +321,7 @@ void auth_handshake(void *user_data) {
 
 **1. Macro Timing (Transaction Level)**
 - Scale: 1ms to seconds
-- Mechanism: `SAFETIMER_CORO_SLEEP()`, `WAIT_UNTIL()`
+- Mechanism: `SAFETIMER_CORO_WAIT()`, `WAIT_UNTIL()`
 - Behavior: **Yielding** - allows other tasks to run
 - Use for: UART response waits, sensor warmup, retry delays
 
@@ -247,7 +333,7 @@ void auth_handshake(void *user_data) {
 
 ### Why This Matters
 
-If you use `SAFETIMER_CORO_SLEEP(1)` for a 1ms protocol delay, other tasks may run. A 2ms task turns your "1ms delay" into 3ms, breaking the protocol.
+If you use `SAFETIMER_CORO_WAIT(1)` for a 1ms protocol delay, other tasks may run. A 2ms task turns your "1ms delay" into 3ms, breaking the protocol.
 
 **Rule:** Block for bits, Yield for transactions.
 
@@ -290,7 +376,7 @@ void sensor_coro(void *data) {
     SAFETIMER_CORO_BEGIN(ctx);
     while (1) {
         sensor_poll_sequence();
-        SAFETIMER_CORO_SLEEP(1000);
+        SAFETIMER_CORO_WAIT(1000);
     }
     SAFETIMER_CORO_END();
 }
@@ -514,9 +600,9 @@ void sensor_coro(void *data) {
     SAFETIMER_CORO_BEGIN(ctx);
     while (1) {
         sensor_power_on();
-        SAFETIMER_CORO_SLEEP(100);      /* Warmup */
+        SAFETIMER_CORO_WAIT(100);      /* Warmup */
         ctx->data = sensor_read();
-        SAFETIMER_CORO_SLEEP(5000);     /* Next reading */
+        SAFETIMER_CORO_WAIT(5000);     /* Next reading */
     }
     SAFETIMER_CORO_END();
 }
@@ -558,6 +644,7 @@ int main(void) {
 
 ## 📖 Next Steps
 
+- **Standalone Examples:** See [`examples/coro_standalone/`](../examples/coro_standalone/) for usage without SafeTimer
 - **Best Practices:** [Use Cases & Best Practices](use-cases.md)
 - **Performance Tuning:** [Configuration & Tuning](configuration-and-tuning.md)
 - **API Reference:** See `include/safetimer_coro.h` for complete coroutine API

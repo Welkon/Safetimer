@@ -344,7 +344,7 @@ void uart_protocol_coro(void *user_data) {
                 break;
             }
             ctx->timeout_counter++;
-            SAFETIMER_CORO_SLEEP(10);  /* Poll every 10ms, returns here! */
+            SAFETIMER_CORO_WAIT(10);  /* Poll every 10ms, returns here! */
         }
 
         /* Check if timeout occurred */
@@ -359,7 +359,7 @@ void uart_protocol_coro(void *user_data) {
             ctx->retry_count = 0;  /* Success, reset retry counter */
         }
 
-        SAFETIMER_CORO_SLEEP(1000);  /* Next command in 1s */
+        SAFETIMER_CORO_WAIT(1000);  /* Next command in 1s */
     }
 
     SAFETIMER_CORO_END();
@@ -395,7 +395,7 @@ int main(void) {
 while (ctx->timeout_counter < 30) {  // Looks like blocking loop
     if (uart_rx_ready()) break;
     ctx->timeout_counter++;
-    SAFETIMER_CORO_SLEEP(10);  // ← Returns from function!
+    SAFETIMER_CORO_WAIT(10);  // ← Returns from function!
 }
 ```
 
@@ -408,7 +408,7 @@ while (ctx->timeout_counter < 30) {  // Looks like blocking loop
 **Total:** 30 function calls over 300ms (completely non-blocking)
 
 **Coroutine Macros:**
-- `SAFETIMER_CORO_SLEEP(ms)` - Sleep for specified milliseconds (exits function)
+- `SAFETIMER_CORO_WAIT(ms)` - Wait for specified milliseconds (exits function)
 - `SAFETIMER_CORO_YIELD()` - Explicit yield (returns immediately)
 - `SAFETIMER_CORO_RESET()` - Restart coroutine from beginning
 - `SAFETIMER_CORO_EXIT()` - Exit coroutine permanently

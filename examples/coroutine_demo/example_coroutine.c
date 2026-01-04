@@ -119,10 +119,10 @@ void led_blink_task(void *user_data)
 
     while (1) {
         led_on();
-        SAFETIMER_CORO_SLEEP(100);   /* 100ms on */
+        SAFETIMER_CORO_WAIT(100);   /* 100ms on */
 
         led_off();
-        SAFETIMER_CORO_SLEEP(900);   /* 900ms off */
+        SAFETIMER_CORO_WAIT(900);   /* 900ms off */
     }
 
     SAFETIMER_CORO_END();
@@ -170,6 +170,7 @@ void uart_task(void *user_data)
 /* ========== Example 3: Semaphore Producer-Consumer ========== */
 
 static volatile safetimer_sem_t data_ready_sem;  /* Volatile for ISR access */
+static volatile safetimer_sem_t auth_rx_sem;     /* Auth response semaphore */
 
 typedef struct {
     SAFETIMER_CORO_CONTEXT;
@@ -195,7 +196,7 @@ void consumer_task(void *user_data)
             ctx->data = 42;  /* Mock read */
         }
 
-        SAFETIMER_CORO_SLEEP(50);  /* Brief processing delay */
+        SAFETIMER_CORO_WAIT(50);  /* Brief processing delay */
     }
 
     SAFETIMER_CORO_END();
@@ -207,6 +208,16 @@ void data_ready_isr(void)
     SAFETIMER_SEM_SIGNAL(data_ready_sem);
 }
 
+/**
+ * @brief Mock UART RX ISR for authentication response
+ * @note In production: Called from actual UART RX interrupt
+ */
+void uart_rx_isr_auth_mock(void)
+{
+    /* In production: Copy received data to g_uart_buffer here */
+    SAFETIMER_SEM_SIGNAL(auth_rx_sem);
+}
+
 /* ========== Example 4: Authentication Handshake ========== */
 
 /**
@@ -214,14 +225,13 @@ void data_ready_isr(void)
  *
  * State machine phases:
  * 1. Generate challenge nonce
- * 2. Wait for response (with timeout)
+ * 2. Wait for response (event-driven with timeout)
  * 3. Verify signature
  * 4. Success → Unlock | Failure → Exponential backoff/lockout
  */
 typedef struct {
     SAFETIMER_CORO_CONTEXT;
     uint32_t challenge;           /**< Current challenge nonce */
-    bsp_tick_t start_time;        /**< Timeout tracking (wraparound-safe) */
     uint8_t retries;              /**< Failed authentication attempts */
     uint32_t lockout_duration;    /**< Dynamic lockout period (ms) */
 } auth_ctx_t;
@@ -273,14 +283,11 @@ void auth_handshake_task(void *user_data)
         /* MACRO-TIMING: Yield now that the hardware transaction is complete */
         SAFETIMER_CORO_YIELD();
 
-        /* Phase 2: Wait for Response (Non-blocking Timeout) */
-        ctx->start_time = bsp_get_ticks();
-        SAFETIMER_CORO_WAIT_UNTIL(
-            uart_has_data() || (elapsed_ms(ctx->start_time) > AUTH_TIMEOUT_MS),
-            50 /* Poll every 50ms */
-        );
+        /* Phase 2: Wait for Response (Event-Driven with Timeout) */
+        /* Wait for auth_rx_sem: 50ms poll × 100 polls = 5000ms timeout */
+        SAFETIMER_CORO_WAIT_SEM(auth_rx_sem, 50, 100);
 
-        if (!uart_has_data()) {
+        if (auth_rx_sem == SAFETIMER_SEM_TIMEOUT) {
             /* Timeout - count as failed attempt (anti-DoS measure) */
             ctx->retries++;
             if (ctx->retries >= AUTH_MAX_RETRIES) {
@@ -289,7 +296,7 @@ void auth_handshake_task(void *user_data)
             } else {
                 ctx->lockout_duration = AUTH_BASE_BACKOFF * ctx->retries;
             }
-            SAFETIMER_CORO_SLEEP(ctx->lockout_duration);
+            SAFETIMER_CORO_WAIT(ctx->lockout_duration);
             continue; /* Restart challenge */
         }
 
@@ -301,7 +308,7 @@ void auth_handshake_task(void *user_data)
             ctx->retries = 0; /* Reset failure counter */
 
             /* Maintain authenticated state for 10 seconds */
-            SAFETIMER_CORO_SLEEP(10000);
+            SAFETIMER_CORO_WAIT(10000);
             led_off();
         } else {
             /* Phase 4: Failure - Linear Backoff */
@@ -314,7 +321,7 @@ void auth_handshake_task(void *user_data)
                 /* Linear backoff: 1s, 2s, 3s */
                 ctx->lockout_duration = AUTH_BASE_BACKOFF * ctx->retries;
             }
-            SAFETIMER_CORO_SLEEP(ctx->lockout_duration);
+            SAFETIMER_CORO_WAIT(ctx->lockout_duration);
         }
     }
 
@@ -332,8 +339,9 @@ void setup_coroutines(void)
 
     safetimer_handle_t h_led, h_uart, h_consumer, h_auth;
 
-    /* Initialize semaphore */
+    /* Initialize semaphores */
     SAFETIMER_SEM_INIT(data_ready_sem);
+    SAFETIMER_SEM_INIT(auth_rx_sem);
 
     /* Create timers (REPEAT mode required for coroutines) */
     h_led = safetimer_create(10, TIMER_MODE_REPEAT, led_blink_task, &led_ctx);

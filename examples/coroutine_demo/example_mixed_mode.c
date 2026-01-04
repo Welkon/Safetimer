@@ -90,7 +90,7 @@ void sensor_coroutine(void *user_data)
         ctx->sensor_data = 42;  /* Mock read */
 
         /* Sleep 1 second before next reading */
-        SAFETIMER_CORO_SLEEP(1000);
+        SAFETIMER_CORO_WAIT(1000);
     }
 
     SAFETIMER_CORO_END();
