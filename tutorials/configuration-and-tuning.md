@@ -317,7 +317,7 @@ Use [Best Practices](use-cases.md) to minimize fragmentation:
 
 ## 🎯 Configuration Examples by Platform
 
-### SC8F072 (128B RAM, 4KB Flash)
+### SC8F072 (128B RAM, 2KB Flash)
 ```c
 #define MAX_TIMERS 4
 #define ENABLE_QUERY_API 0

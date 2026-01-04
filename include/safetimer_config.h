@@ -113,7 +113,7 @@
  *   Enabled:  Dynamic applications requiring runtime state inspection,
  *             debugging, or diagnostic features
  *
- * @note Recommended: 0 for production (SC8F072 with 1KB Flash constraint)
+ * @note Recommended: 0 for production (SC8F072 with 2KB Flash constraint)
  * @note Recommended: 1 for development/debugging
  * @note Core APIs (create/start/delete/process) are always available
  *
