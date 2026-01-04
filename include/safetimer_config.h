@@ -147,6 +147,99 @@
 #define ENABLE_PARAM_CHECK 1
 #endif
 
+/* ========== Handle Safety (ABA Protection) ========== */
+
+/**
+ * @brief ABA protection level for timer handles
+ *
+ * Controls how SafeTimer prevents "use-after-delete" bugs where a stale handle
+ * accidentally operates on a newly created timer that reused the same slot.
+ *
+ * 0 = Disabled (no ABA protection)
+ *     - Handle = slot index only (pure integer)
+ *     - Saves 1 byte RAM (global next_generation counter)
+ *     - ⚠️ Undefined behavior if handles are reused after safetimer_delete()
+ *     - Use case: Static systems where timers are never deleted
+ *
+ * 1 = Debug-only (assertions in debug builds)
+ *     - Generation counter exists, validated via assert() in validate_handle()
+ *     - Requires ENABLE_PARAM_CHECK=1 to invoke validation
+ *     - Flash savings in release (assert compiled out), but RAM cost same as Level 2
+ *     - ✅ Recommended for production embedded systems
+ *     - Catches ABA bugs during development
+ *
+ * 2 = Always enabled (default, full runtime protection)
+ *     - Handle encodes [generation:3bit][index:5bit]
+ *     - Runtime validation in all builds
+ *     - 1 byte global overhead (next_generation counter)
+ *     - Use case: General-purpose library, safety-critical systems
+ *
+ * RAM Impact (MAX_TIMERS=8):
+ *   Level 0: 108 bytes (-1B global overhead)
+ *   Level 1: 109 bytes (same as Level 2, Flash savings only)
+ *   Level 2: 109 bytes (current implementation)
+ *
+ * NOTE: Per-timer RAM is unchanged across all levels because generation
+ *       bits reuse the existing meta byte (bit-packed with mode/active)
+ *
+ * Flash Impact:
+ *   Level 0: ~900 bytes
+ *   Level 1: ~950 bytes (assertions only in debug)
+ *   Level 2: ~1024 bytes
+ *
+ * @note Level 2 preserves exact v1.3.x behavior (backward compatible)
+ * @note Level 1 is recommended for embedded production (safe + Flash savings)
+ * @warning Level 0 requires developer discipline (like null-pointer safety)
+ * @warning Level 1 requires ENABLE_PARAM_CHECK=1 to invoke assert() validation
+ */
+#ifndef SAFETIMER_ABA_PROTECTION
+#define SAFETIMER_ABA_PROTECTION 2
+#endif
+
+/* Validate SAFETIMER_ABA_PROTECTION configuration */
+#if SAFETIMER_ABA_PROTECTION == 1 && ENABLE_PARAM_CHECK == 0
+#warning "SAFETIMER_ABA_PROTECTION=1 requires ENABLE_PARAM_CHECK=1 for assertions to work. Set ENABLE_PARAM_CHECK=1 or use Level 0/2 instead."
+#endif
+
+/* ========== BSP Implementation Selection ========== */
+
+/**
+ * @brief BSP Implementation Mode
+ *
+ * Controls which BSP implementation is compiled into the library.
+ * User MUST choose exactly ONE option:
+ *
+ * 0 = User-provided (Default)
+ *     - User implements bsp_get_ticks/enter_critical/exit_critical
+ *     - No default implementation compiled
+ *     - Suitable for: Production embedded systems with custom BSP
+ *     - Flash Impact: 0 bytes (no default BSP code)
+ *     - RAM Impact: 0 bytes
+ *
+ * 1 = Generic hosted (Single-threaded)
+ *     - Provides safetimer_tick_isr() hook for user to call
+ *     - No-op critical sections (UNSAFE for multi-threaded/ISR)
+ *     - Requires: SAFETIMER_ASSUME_SINGLE_THREADED to be defined
+ *     - Suitable for: Unit tests, PC simulation, cooperative schedulers
+ *     - Flash Impact: ~80 bytes
+ *     - RAM Impact: +4 bytes (tick counter)
+ *
+ * 2 = Generic hosted (Runtime trap)
+ *     - Same as mode 1, but critical sections trap (while(1))
+ *     - Forces user to acknowledge single-threaded assumption
+ *     - Suitable for: Development/debugging
+ *     - Flash Impact: ~100 bytes
+ *     - RAM Impact: +4 bytes (tick counter)
+ *
+ * @note Mode 0 is MANDATORY for compilers without weak symbol support
+ *       (SC8F072, Keil C51, etc.)
+ * @note Modes 1/2 require user to call safetimer_tick_isr() from hardware timer ISR
+ * @note See docs/porting_guide.md for detailed usage instructions
+ */
+#ifndef SAFETIMER_BSP_IMPLEMENTATION
+#define SAFETIMER_BSP_IMPLEMENTATION 0  /* Default: user-provided */
+#endif
+
 /* ========== Compiler Compatibility ========== */
 
 /**
@@ -170,14 +263,44 @@
  *
  * @note For SC8F072 (160B RAM): Use 16-bit to maximize available memory
  * @note For standard MCUs (>256B RAM): Use 32-bit for longer periods
- * @note Default: 0 (32-bit) for maximum compatibility
+ * @note Default: 1 (16-bit) for low RAM MCUs
  *
  * @warning With 16-bit ticks, periods > 65535ms will be truncated!
  *          Always validate period_ms in application code or enable
  *          ENABLE_PARAM_CHECK to catch this at runtime.
  */
 #ifndef BSP_TICK_TYPE_16BIT
-#define BSP_TICK_TYPE_16BIT 0  /* Default: 32-bit for compatibility */
+#define BSP_TICK_TYPE_16BIT 1  /* Default: 16-bit for low RAM */
+#endif
+
+/**
+ * @brief Timer state compression mode
+ *
+ * Control how timer state fields (mode, active, generation) are stored:
+ *
+ * 0 = Manual bit masking (Default)
+ *     - Uses explicit bit operations with macros
+ *     - Portable across all compilers (Keil C51, SDCC, GCC)
+ *     - Explicit bit layout: bit7=mode, bit6=active, bit[2:0]=generation
+ *     - Consistent with HANDLE_* macro style in codebase
+ *
+ * 1 = C bitfield
+ *     - Uses C language bitfield syntax (uint8_t field : bits)
+ *     - Cleaner code syntax (slot->active = 1)
+ *     - Compiler-optimized access
+ *     - Bit order is implementation-defined (may vary across compilers)
+ *
+ * Memory Impact (both modes):
+ *   - Saves 2 bytes per timer (15 bytes -> 13 bytes)
+ *   - For MAX_TIMERS=4: 65 bytes -> 57 bytes (-12.3%)
+ *   - For MAX_TIMERS=8: 125 bytes -> 109 bytes (-12.8%)
+ *
+ * @note Default: 0 (manual masking) for maximum portability
+ * @note If using single compiler only, mode 1 (bitfield) is safe and cleaner
+ * @note Both modes provide identical functionality and RAM savings
+ */
+#ifndef USE_BITFIELD_META
+#define USE_BITFIELD_META 0  /* Default: manual bit masking */
 #endif
 
 /**
@@ -265,6 +388,11 @@ typedef signed long    int32_t;
 /* Validate ENABLE_QUERY_API */
 #if ENABLE_QUERY_API != 0 && ENABLE_QUERY_API != 1
 #error "ENABLE_QUERY_API must be 0 or 1"
+#endif
+
+/* Validate SAFETIMER_ABA_PROTECTION */
+#if SAFETIMER_ABA_PROTECTION < 0 || SAFETIMER_ABA_PROTECTION > 2
+#error "SAFETIMER_ABA_PROTECTION must be 0, 1, or 2"
 #endif
 
 /* ========== Configuration Summary ========== */

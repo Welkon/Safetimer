@@ -63,6 +63,27 @@ typedef uint32_t bsp_tick_t; /* 32-bit: 0 ~ 4294967295 ms (49.7 days max) */
 /* ========== BSP Functions (USER MUST IMPLEMENT) ========== */
 
 /**
+ * @brief Tick hook for default BSP implementation (optional)
+ *
+ * When using SAFETIMER_BSP_IMPLEMENTATION=1 or 2, user must call this
+ * function from their hardware timer ISR to increment the tick counter.
+ *
+ * @note Only available when SAFETIMER_BSP_IMPLEMENTATION > 0
+ * @note Not needed when using custom BSP (Mode 0)
+ *
+ * @par Example Usage:
+ * @code
+ * void Timer0_ISR(void) {
+ *     T0IF = 0;  // Clear interrupt flag
+ *     safetimer_tick_isr();  // Increment SafeTimer tick
+ * }
+ * @endcode
+ */
+#if (SAFETIMER_BSP_IMPLEMENTATION > 0)
+void safetimer_tick_isr(void);
+#endif
+
+/**
  * @brief Get current system tick in milliseconds
  *
  * @return Current tick count (milliseconds since power-on)
@@ -137,6 +158,19 @@ void bsp_exit_critical(void);
 /* ========== BSP Requirements Summary ========== */
 
 /**
+ * @par BSP Implementation Options:
+ *
+ * Option 1: Use Default BSP (Quick Start)
+ * - Set SAFETIMER_BSP_IMPLEMENTATION=1 in safetimer_config.h
+ * - Define SAFETIMER_ASSUME_SINGLE_THREADED
+ * - Call safetimer_tick_isr() from your hardware timer ISR
+ * - Suitable for: Unit tests, single-threaded applications
+ *
+ * Option 2: Custom BSP (Production)
+ * - Keep SAFETIMER_BSP_IMPLEMENTATION=0 (default)
+ * - Implement the 3 BSP functions below
+ * - Suitable for: Embedded systems with ISRs, RTOS applications
+ *
  * @par BSP Integration Checklist:
  *
  * Hardware Timer Setup:
