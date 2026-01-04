@@ -74,7 +74,7 @@
  *   - Use compile-time pool sizing (MAX_TIMERS) instead of runtime queries
  */
 #ifndef ENABLE_QUERY_API
-#define ENABLE_QUERY_API 0  /* Default: disabled for minimal footprint */
+#define ENABLE_QUERY_API 0 /* Default: disabled for minimal footprint */
 #endif
 
 /* ========== REPEAT Timer Behavior ========== */
@@ -82,46 +82,15 @@
 /**
  * @brief Enable catch-up behavior for REPEAT timers
  *
- * 0 = Disabled (skip missed intervals, default)
- * 1 = Enabled (fire callbacks for each missed interval)
+ * 0 = Disabled (default): Skip missed intervals, single callback fires
+ * 1 = Enabled: Fire callbacks for each missed interval (burst mode)
  *
- * Behavior Comparison:
+ * Flash Impact: ~30 bytes
  *
- * Scenario: 100ms period timer, system blocked for 350ms
- *
- * DISABLED (0 - default):
- *   - Single callback fires when system resumes
- *   - expire_time advances to next future interval (400ms)
- *   - Missed intervals (100ms, 200ms, 300ms) are skipped
- *   - No burst callbacks, deterministic CPU usage
- *   - Suitable for: LED blink, UI updates, timeouts, heartbeats
- *
- * ENABLED (1):
- *   - Multiple callbacks fire in rapid succession (burst)
- *   - Each call to safetimer_process() triggers one callback
- *   - expire_time: 100ms → 200ms → 300ms → 400ms
- *   - Ensures exact count of callbacks over time
- *   - Suitable for: sampling counters, integrators, event statistics
- *
- * Flash Impact: ~30 bytes (while loop vs single increment)
- *
- * Performance Impact:
- *   DISABLED: O(n) where n = missed intervals (inside critical section)
- *   ENABLED:  O(1) per safetimer_process() call (but multiple calls needed)
- *
- * Embedded Systems Recommendation:
- *   Default DISABLED because burst callbacks can:
- *   - Starve cooperative schedulers
- *   - Toggle GPIOs erratically
- *   - Break communication protocols
- *   - Cause unpredictable timing in ISR-sensitive systems
- *
- * @note v1.2.4 behavior = ENABLED (1)
- * @note v1.2.5+ default = DISABLED (0) to restore pre-v1.2.4 expectations
- * @note For v1.3.0: Use TIMER_MODE_REPEAT_CATCHUP instead of this macro
+ * @note Default DISABLED for deterministic CPU usage
  */
 #ifndef SAFETIMER_ENABLE_CATCHUP
-#define SAFETIMER_ENABLE_CATCHUP 0  /* Default: skip missed intervals */
+#define SAFETIMER_ENABLE_CATCHUP 0
 #endif
 
 /* ========== Parameter Validation ========== */
@@ -152,45 +121,14 @@
 /**
  * @brief ABA protection level for timer handles
  *
- * Controls how SafeTimer prevents "use-after-delete" bugs where a stale handle
- * accidentally operates on a newly created timer that reused the same slot.
+ * Prevents "use-after-delete" bugs where stale handles access reallocated
+ * slots.
  *
- * 0 = Disabled (no ABA protection)
- *     - Handle = slot index only (pure integer)
- *     - Saves 1 byte RAM (global next_generation counter)
- *     - ⚠️ Undefined behavior if handles are reused after safetimer_delete()
- *     - Use case: Static systems where timers are never deleted
+ * 0 = Disabled: No protection, saves 1 byte RAM
+ * 1 = Debug-only: Assertions in debug builds (requires ENABLE_PARAM_CHECK=1)
+ * 2 = Always enabled (default): Full runtime validation
  *
- * 1 = Debug-only (assertions in debug builds)
- *     - Generation counter exists, validated via assert() in validate_handle()
- *     - Requires ENABLE_PARAM_CHECK=1 to invoke validation
- *     - Flash savings in release (assert compiled out), but RAM cost same as Level 2
- *     - ✅ Recommended for production embedded systems
- *     - Catches ABA bugs during development
- *
- * 2 = Always enabled (default, full runtime protection)
- *     - Handle encodes [generation:3bit][index:5bit]
- *     - Runtime validation in all builds
- *     - 1 byte global overhead (next_generation counter)
- *     - Use case: General-purpose library, safety-critical systems
- *
- * RAM Impact (MAX_TIMERS=8):
- *   Level 0: 108 bytes (-1B global overhead)
- *   Level 1: 109 bytes (same as Level 2, Flash savings only)
- *   Level 2: 109 bytes (current implementation)
- *
- * NOTE: Per-timer RAM is unchanged across all levels because generation
- *       bits reuse the existing meta byte (bit-packed with mode/active)
- *
- * Flash Impact:
- *   Level 0: ~900 bytes
- *   Level 1: ~950 bytes (assertions only in debug)
- *   Level 2: ~1024 bytes
- *
- * @note Level 2 preserves exact v1.3.x behavior (backward compatible)
- * @note Level 1 is recommended for embedded production (safe + Flash savings)
- * @warning Level 0 requires developer discipline (like null-pointer safety)
- * @warning Level 1 requires ENABLE_PARAM_CHECK=1 to invoke assert() validation
+ * @note Level 2 recommended for safety-critical systems
  */
 #ifndef SAFETIMER_ABA_PROTECTION
 #define SAFETIMER_ABA_PROTECTION 2
@@ -198,7 +136,8 @@
 
 /* Validate SAFETIMER_ABA_PROTECTION configuration */
 #if SAFETIMER_ABA_PROTECTION == 1 && ENABLE_PARAM_CHECK == 0
-#warning "SAFETIMER_ABA_PROTECTION=1 requires ENABLE_PARAM_CHECK=1 for assertions to work. Set ENABLE_PARAM_CHECK=1 or use Level 0/2 instead."
+#warning                                                                       \
+    "SAFETIMER_ABA_PROTECTION=1 requires ENABLE_PARAM_CHECK=1 for assertions to work. Set ENABLE_PARAM_CHECK=1 or use Level 0/2 instead."
 #endif
 
 /* ========== BSP Implementation Selection ========== */
@@ -233,11 +172,12 @@
  *
  * @note Mode 0 is MANDATORY for compilers without weak symbol support
  *       (SC8F072, Keil C51, etc.)
- * @note Modes 1/2 require user to call safetimer_tick_isr() from hardware timer ISR
+ * @note Modes 1/2 require user to call safetimer_tick_isr() from hardware timer
+ * ISR
  * @note See docs/porting_guide.md for detailed usage instructions
  */
 #ifndef SAFETIMER_BSP_IMPLEMENTATION
-#define SAFETIMER_BSP_IMPLEMENTATION 0  /* Default: user-provided */
+#define SAFETIMER_BSP_IMPLEMENTATION 0 /* Default: user-provided */
 #endif
 
 /* ========== Compiler Compatibility ========== */
@@ -270,52 +210,31 @@
  *          ENABLE_PARAM_CHECK to catch this at runtime.
  */
 #ifndef BSP_TICK_TYPE_16BIT
-#define BSP_TICK_TYPE_16BIT 1  /* Default: 16-bit for low RAM */
+#define BSP_TICK_TYPE_16BIT 1 /* Default: 16-bit for low RAM */
 #endif
 
 /**
  * @brief Timer state compression mode
  *
- * Control how timer state fields (mode, active, generation) are stored:
+ * 0 = Manual bit masking (default): Portable across all compilers
+ * 1 = C bitfield: Cleaner syntax, compiler-dependent bit order
  *
- * 0 = Manual bit masking (Default)
- *     - Uses explicit bit operations with macros
- *     - Portable across all compilers (Keil C51, SDCC, GCC)
- *     - Explicit bit layout: bit7=mode, bit6=active, bit[2:0]=generation
- *     - Consistent with HANDLE_* macro style in codebase
- *
- * 1 = C bitfield
- *     - Uses C language bitfield syntax (uint8_t field : bits)
- *     - Cleaner code syntax (slot->active = 1)
- *     - Compiler-optimized access
- *     - Bit order is implementation-defined (may vary across compilers)
- *
- * Memory Impact (both modes):
- *   - Saves 2 bytes per timer (15 bytes -> 13 bytes)
- *   - For MAX_TIMERS=4: 65 bytes -> 57 bytes (-12.3%)
- *   - For MAX_TIMERS=8: 125 bytes -> 109 bytes (-12.8%)
- *
- * @note Default: 0 (manual masking) for maximum portability
- * @note If using single compiler only, mode 1 (bitfield) is safe and cleaner
- * @note Both modes provide identical functionality and RAM savings
+ * @note Both modes save 2 bytes per timer
  */
 #ifndef USE_BITFIELD_META
-#define USE_BITFIELD_META 0  /* Default: manual bit masking */
+#define USE_BITFIELD_META 0
 #endif
 
 /**
  * @brief Use stdint.h for integer types
  *
- * 0 = Use custom typedefs (for old compilers without stdint.h)
- * 1 = Use stdint.h (C99/C11 compilers)
- *
- * @note SDCC 4.x, GCC 9+, Keil C51 9.x support stdint.h
- * @note Older Keil versions may require 0
- * @note For PC testing (UNIT_TEST), always use stdint.h
+ * 0 = Use custom typedefs (for old 8-bit compilers without stdint.h)
+ * 1 = Use stdint.h (default for GCC/Clang/modern compilers)
  */
 #ifndef USE_STDINT_H
-#ifdef UNIT_TEST
-#define USE_STDINT_H 1  /* PC tests always use stdint.h */
+#if defined(__GNUC__) || defined(__clang__) || defined(UNIT_TEST) ||           \
+    defined(__STDC_VERSION__)
+#define USE_STDINT_H 1
 #else
 #define USE_STDINT_H 0
 #endif
@@ -325,12 +244,12 @@
 #include <stdint.h>
 #else
 /* Custom typedefs for C89 compatibility */
-typedef unsigned char  uint8_t;
-typedef unsigned int   uint16_t;
-typedef unsigned long  uint32_t;
-typedef signed char    int8_t;
-typedef signed int     int16_t;
-typedef signed long    int32_t;
+typedef unsigned char uint8_t;
+typedef unsigned int uint16_t;
+typedef unsigned long uint32_t;
+typedef signed char int8_t;
+typedef signed int int16_t;
+typedef signed long int32_t;
 #endif
 
 /* ========== Debugging & Testing ========== */
@@ -377,7 +296,8 @@ typedef signed long    int32_t;
 
 /* Warn about RAM usage */
 #if MAX_TIMERS > 8
-#error "Current implementation only supports up to 8 timers (due to uint8_t bitmap). To use more, upgrade used_bitmap to uint32_t."
+#error                                                                         \
+    "Current implementation only supports up to 8 timers (due to uint8_t bitmap). To use more, upgrade used_bitmap to uint32_t."
 #endif
 
 /* Validate ENABLE_PARAM_CHECK */
@@ -398,30 +318,8 @@ typedef signed long    int32_t;
 /* ========== Configuration Summary ========== */
 
 /**
- * @par Current Configuration:
- *
- * Timers:    MAX_TIMERS (compile-time value shown during build)
- * RAM Usage: ~(MAX_TIMERS * 14 + 2) bytes
- * Validation: ENABLE_PARAM_CHECK (0=off, 1=on)
- * stdint.h:  USE_STDINT_H (0=custom, 1=standard)
- *
- * @par Tuning Guidelines:
- *
- * For SC8F072 (176 bytes RAM) - Default Configuration:
- *   MAX_TIMERS=4, ENABLE_PARAM_CHECK=0 (release)
- *   Result: 58 bytes RAM, ~0.9KB Flash, 74 bytes free for user
- *
- * For standard applications (256-512 bytes RAM):
- *   MAX_TIMERS=8, ENABLE_PARAM_CHECK=1
- *   Result: 114 bytes RAM, ~1.0KB Flash
- *
- * For more timers (1KB+ RAM):
- *   MAX_TIMERS=16, ENABLE_PARAM_CHECK=1, USE_STDINT_H=1
- *   Result: 226 bytes RAM, ~1.2KB Flash
- *
- * For development/testing:
- *   ENABLE_PARAM_CHECK=1, ENABLE_DEBUG_ASSERT=1
- *   Result: Safer, easier debugging
+ * @par RAM Usage: ~(MAX_TIMERS * 14 + 2) bytes
+ * @par Recommended: MAX_TIMERS=4 for 176B RAM MCUs, =8 for 256B+ RAM
  */
 
 #endif /* SAFETIMER_CONFIG_H */

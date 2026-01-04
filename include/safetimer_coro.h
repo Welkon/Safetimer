@@ -46,10 +46,6 @@
 #include "coro_base.h"
 #include "safetimer.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 /* ========== Extended Coroutine Context ========== */
 
 /**
@@ -60,7 +56,8 @@ extern "C" {
  *
  * @note Inherits _coro_lc from CORO_CONTEXT (line number for resumption)
  * @note Adds _coro_handle for timer period modification (SLEEP/WAIT_UNTIL)
- * @note Auto-binding: handle is automatically set on first SAFETIMER_CORO_BEGIN()
+ * @note Auto-binding: handle is automatically set on first
+ * SAFETIMER_CORO_BEGIN()
  *
  * @par Memory Cost:
  * - 3 bytes total: 2 bytes (_coro_lc) + 1 byte (_coro_handle)
@@ -73,9 +70,9 @@ extern "C" {
  * } my_context_t;
  * @endcode
  */
-#define SAFETIMER_CORO_CONTEXT \
-    CORO_CONTEXT; \
-    safetimer_handle_t _coro_handle
+#define SAFETIMER_CORO_CONTEXT                                                 \
+  CORO_CONTEXT;                                                                \
+  safetimer_handle_t _coro_handle
 
 /* ========== Coroutine Control Flow (Adapter Layer) ========== */
 
@@ -85,18 +82,21 @@ extern "C" {
  * Extends CORO_BEGIN with automatic handle binding on first execution.
  * Must be paired with SAFETIMER_CORO_END().
  *
- * @param ctx Pointer to context struct (first member must be SAFETIMER_CORO_CONTEXT)
+ * @param ctx Pointer to context struct (first member must be
+ * SAFETIMER_CORO_CONTEXT)
  *
- * @note Auto-binding: Detects unbound handle (0 or -1) and captures current handle
+ * @note Auto-binding: Detects unbound handle (0 or -1) and captures current
+ * handle
  * @note Delegates to CORO_BEGIN for core state machine logic
- * @note Backward compatible: works with {0} initialization and manual assignment
+ * @note Backward compatible: works with {0} initialization and manual
+ * assignment
  */
-#define SAFETIMER_CORO_BEGIN(ctx) \
-    if ((ctx)->_coro_handle == SAFETIMER_INVALID_HANDLE || \
-        (ctx)->_coro_handle == 0) { \
-        (ctx)->_coro_handle = safetimer_get_current_handle(); \
-    } \
-    CORO_BEGIN(ctx)
+#define SAFETIMER_CORO_BEGIN(ctx)                                              \
+  if ((ctx)->_coro_handle == SAFETIMER_INVALID_HANDLE ||                       \
+      (ctx)->_coro_handle == 0) {                                              \
+    (ctx)->_coro_handle = safetimer_get_current_handle();                      \
+  }                                                                            \
+  CORO_BEGIN(ctx)
 
 /**
  * @brief End SafeTimer coroutine body
@@ -113,38 +113,15 @@ extern "C" {
 #define SAFETIMER_CORO_YIELD() CORO_YIELD()
 
 /**
- * @brief Wait for specified milliseconds
+ * @brief Wait for specified milliseconds (zero-drift timing)
  *
  * Sets timer period to `ms` and yields. Timer must be in TIMER_MODE_REPEAT.
+ * Uses `safetimer_advance_period()` to maintain phase-locking.
  *
  * @param ms Delay time in milliseconds (1 ~ 2^31-1)
  *
- * @note Modifies timer period, execution resumes after ~ms milliseconds
- * @note Actual delay depends on safetimer_process() call frequency
- *
- * ✅ **FIXED in v1.3.1: Zero Cumulative Error**
- *
- * This macro now uses `safetimer_advance_period()` internally, which
- * maintains phase-locking and eliminates cumulative timing error.
- *
- * **Timing Accuracy:**
- * - **v1.3.0 (OLD):** Used `safetimer_set_period()` → 0.01% drift per cycle
- *   - 1 hour: +0.36s, 1 day: +8.64s, 1 year: +52.6 minutes ❌
- * - **v1.3.1 (NEW):** Uses `safetimer_advance_period()` → ZERO drift
- *   - Infinite runtime: 0 seconds cumulative error ✅
- *
- * **Technical Details:**
- * - OLD: `expire_time = current_tick + ms` (resets from now)
- * - NEW: `expire_time += ms` (advances from last expiration)
- * - Overflow-safe: Uses ADR-005 wraparound algorithm
- * - Thread-safe: BSP critical section protection
- *
- * **Suitable for:**
- * - ✅ LED blink (any duration)
- * - ✅ Sensor polling (long-term)
- * - ✅ UART timeouts
- * - ✅ Battery-powered applications (days/months runtime)
- * - ✅ Precise PWM generation (when combined with hardware timers)
+ * @note Zero cumulative timing error over infinite runtime
+ * @note Thread-safe: BSP critical section protection
  *
  * @par Example:
  * @code
@@ -152,14 +129,16 @@ extern "C" {
  * led_toggle();               // Zero cumulative drift over time
  * @endcode
  */
-#define SAFETIMER_CORO_WAIT(ms) do { \
-    if ((ctx)->_coro_handle != SAFETIMER_INVALID_HANDLE && \
-        (ctx)->_coro_handle != 0) { \
-        safetimer_advance_period((ctx)->_coro_handle, (ms)); \
-    } \
-    (ctx)->_coro_lc = __LINE__; return; \
-    case __LINE__:; \
-} while(0)
+#define SAFETIMER_CORO_WAIT(ms)                                                \
+  do {                                                                         \
+    if ((ctx)->_coro_handle != SAFETIMER_INVALID_HANDLE &&                     \
+        (ctx)->_coro_handle != 0) {                                            \
+      safetimer_advance_period((ctx)->_coro_handle, (ms));                     \
+    }                                                                          \
+    (ctx)->_coro_lc = __LINE__;                                                \
+    return;                                                                    \
+  case __LINE__:;                                                              \
+  } while (0)
 
 /**
  * @brief DEPRECATED: Use SAFETIMER_CORO_WAIT instead
@@ -185,15 +164,17 @@ extern "C" {
  * data = uart_read();  // Executes only when data available
  * @endcode
  */
-#define SAFETIMER_CORO_WAIT_UNTIL(cond, poll_ms) do { \
-    if ((ctx)->_coro_handle != SAFETIMER_INVALID_HANDLE && \
-        (ctx)->_coro_handle != 0) { \
-        safetimer_set_period((ctx)->_coro_handle, (poll_ms)); \
-    } \
-    (ctx)->_coro_lc = __LINE__; \
-    case __LINE__: \
-    if (!(cond)) return; \
-} while(0)
+#define SAFETIMER_CORO_WAIT_UNTIL(cond, poll_ms)                               \
+  do {                                                                         \
+    if ((ctx)->_coro_handle != SAFETIMER_INVALID_HANDLE &&                     \
+        (ctx)->_coro_handle != 0) {                                            \
+      safetimer_set_period((ctx)->_coro_handle, (poll_ms));                    \
+    }                                                                          \
+    (ctx)->_coro_lc = __LINE__;                                                \
+  case __LINE__:                                                               \
+    if (!(cond))                                                               \
+      return;                                                                  \
+  } while (0)
 
 /**
  * @brief Reset coroutine to beginning (delegates to base coroutine)
@@ -225,39 +206,12 @@ extern "C" {
 /* ========== Usage Guidelines ========== */
 
 /**
- * @par Coroutine Limitations (Protothread Constraints):
- *
- * - Local variables are NOT preserved across yields
- *   ✗ Wrong: int x = 5; CORO_SLEEP(100); printf("%d", x);  // x is lost!
- *   ✓ Right: Store variables in context struct
- *
- * - Cannot use switch/case inside coroutine body
- *   ✗ Wrong: switch(state) { ... } inside CORO_BEGIN/END
- *   ✓ Right: Use if-else chains or call external switch functions
- *
- * - Cannot use __LINE__ macro in user code
- *   ✗ Wrong: printf("Line: %d", __LINE__);
- *   ✓ Right: Avoid __LINE__ within coroutine scope
- *
  * @par Best Practices:
- *
  * 1. Always embed SAFETIMER_CORO_CONTEXT as first member
  * 2. Store all persistent data in context struct
  * 3. Keep coroutines simple - complex logic in separate functions
- * 4. Use StateSmith for complex state machines (separate timer)
- * 5. Test edge cases: timer deletion, rapid start/stop
  *
- * @par Interaction with StateSmith:
- *
- * Coroutines and StateSmith state machines can coexist:
- * - Use separate timers for each
- * - StateSmith uses user_data for state machine context
- * - Coroutines use their own context with SAFETIMER_CORO_CONTEXT
- * - Both can run simultaneously without conflict
+ * @note For basic coroutine limitations and constraints, see coro_base.h
  */
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* SAFETIMER_CORO_H */

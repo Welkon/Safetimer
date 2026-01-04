@@ -10,10 +10,6 @@
 #ifndef BSP_H
 #define BSP_H
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 /* ========== Type Definitions ========== */
 
 /**
@@ -30,26 +26,8 @@ extern "C" {
  * @warning With 16-bit ticks: max timer period is 65535ms (65.5 seconds)
  *          Use safetimer_tick_diff() for correct wraparound handling
  */
-/**
- * @brief Fixed-width integer types
- *
- * Default: Uses standard <stdint.h> (preferred)
- * When NO_STDINT_H=1: Uses C89 fallback typedefs for legacy compilers
- *
- * @note Most modern compilers support stdint.h (SDCC, Keil, IAR, GCC, etc.)
- *       Only define NO_STDINT_H=1 for very old compilers without stdint.h
- */
-#ifndef NO_STDINT_H
-#include <stdint.h>
-#else
-/* C89 fallback: define standard integer types (only for legacy compilers) */
-typedef signed char int8_t;     /*  8-bit signed: -128 ~ 127 */
-typedef signed int int16_t;     /* 16-bit signed (assumes 16-bit int) */
-typedef signed long int32_t;    /* 32-bit signed */
-typedef unsigned char uint8_t;  /*  8-bit unsigned: 0 ~ 255 */
-typedef unsigned int uint16_t;  /* 16-bit unsigned (assumes 16-bit int) */
-typedef unsigned long uint32_t; /* 32-bit unsigned */
-#endif
+/* Integer types are defined in safetimer_config.h (included via safetimer.h) */
+#include "safetimer_config.h"
 
 /**
  * @brief BSP tick type selection based on BSP_TICK_TYPE_16BIT
@@ -158,53 +136,11 @@ void bsp_exit_critical(void);
 /* ========== BSP Requirements Summary ========== */
 
 /**
- * @par BSP Implementation Options:
+ * @par BSP Implementation:
+ * - Set SAFETIMER_BSP_IMPLEMENTATION=1 for default BSP (quick start)
+ * - Keep =0 (default) and implement 3 functions for custom BSP
  *
- * Option 1: Use Default BSP (Quick Start)
- * - Set SAFETIMER_BSP_IMPLEMENTATION=1 in safetimer_config.h
- * - Define SAFETIMER_ASSUME_SINGLE_THREADED
- * - Call safetimer_tick_isr() from your hardware timer ISR
- * - Suitable for: Unit tests, single-threaded applications
- *
- * Option 2: Custom BSP (Production)
- * - Keep SAFETIMER_BSP_IMPLEMENTATION=0 (default)
- * - Implement the 3 BSP functions below
- * - Suitable for: Embedded systems with ISRs, RTOS applications
- *
- * @par BSP Integration Checklist:
- *
- * Hardware Timer Setup:
- * - [ ] Configure hardware timer for 1ms interrupt
- * - [ ] Verify timer interrupt fires accurately (±1% acceptable)
- * - [ ] Implement ISR that increments tick counter
- *
- * bsp_get_ticks():
- * - [ ] Returns 32-bit unsigned milliseconds
- * - [ ] Monotonically increasing (never decrements)
- * - [ ] Allows wraparound at 2^32-1
- * - [ ] Execution time <10us
- *
- * bsp_enter_critical() / bsp_exit_critical():
- * - [ ] Disable/enable interrupts correctly
- * - [ ] Properly paired (no nesting in v1.0)
- * - [ ] Fast execution (<5 instructions each)
- *
- * Testing:
- * - [ ] Verify tick accuracy with oscilloscope/logic analyzer
- * - [ ] Test critical section protects shared data
- * - [ ] Verify no interrupt loss during critical sections
- *
- * @par Porting Guide:
- * See docs/porting_guide.md for detailed instructions.
- *
- * @par Example Platforms:
- * - examples/sc8f072/bsp_sc8f072.c - SC8F072 (SDCC)
- * - examples/stm8/bsp_stm8.c       - STM8 (SDCC)
- * - examples/stc8/bsp_stc8.c       - STC8 (Keil C51)
+ * @par See docs/porting_guide.md for detailed instructions.
  */
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* BSP_H */

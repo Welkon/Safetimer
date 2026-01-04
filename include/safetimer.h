@@ -10,12 +10,8 @@
 #ifndef SAFETIMER_H
 #define SAFETIMER_H
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 /* ========== Version Information ========== */
-#define SAFETIMER_VERSION       "1.2.6"
+#define SAFETIMER_VERSION "1.2.6"
 #define SAFETIMER_VERSION_MAJOR 1
 #define SAFETIMER_VERSION_MINOR 2
 #define SAFETIMER_VERSION_PATCH 5
@@ -59,18 +55,18 @@ typedef int safetimer_handle_t;
  * @brief Timer mode enumeration
  */
 typedef enum {
-    TIMER_MODE_ONE_SHOT = 0,  /**< Timer fires once and stops */
-    TIMER_MODE_REPEAT   = 1   /**< Timer fires repeatedly */
+  TIMER_MODE_ONE_SHOT = 0, /**< Timer fires once and stops */
+  TIMER_MODE_REPEAT = 1    /**< Timer fires repeatedly */
 } timer_mode_t;
 
 /**
  * @brief Timer error codes
  */
 typedef enum {
-    TIMER_OK            =  0,  /**< Success */
-    TIMER_ERR_FULL      = -1,  /**< Timer pool is full */
-    TIMER_ERR_INVALID   = -2,  /**< Invalid parameter */
-    TIMER_ERR_NOT_FOUND = -3   /**< Timer not found or inactive */
+  TIMER_OK = 0,            /**< Success */
+  TIMER_ERR_FULL = -1,     /**< Timer pool is full */
+  TIMER_ERR_INVALID = -2,  /**< Invalid parameter */
+  TIMER_ERR_NOT_FOUND = -3 /**< Timer not found or inactive */
 } timer_error_t;
 
 /**
@@ -79,11 +75,16 @@ typedef enum {
  * @param user_data User data pointer passed during timer creation
  *
  * @warning CRITICAL RESTRICTIONS (violating these causes system failure):
- * @warning 1. Callback MUST NOT create, delete, or modify other timers (ADR-003)
- * @warning 2. Callback MUST NOT call safetimer_process() (causes stack overflow, Trap #19)
- * @warning 3. Keep execution time minimal (< 100us recommended, prevents priority inversion, Trap #5)
- * @warning 4. user_data MUST point to static/global memory, NOT stack variables (Trap #16)
- * @warning 5. Check resource validity if timer may be stopped from ISR (Trap #6)
+ * @warning 1. Callback MUST NOT create, delete, or modify other timers
+ * (ADR-003)
+ * @warning 2. Callback MUST NOT call safetimer_process() (causes stack
+ * overflow, Trap #19)
+ * @warning 3. Keep execution time minimal (< 100us recommended, prevents
+ * priority inversion, Trap #5)
+ * @warning 4. user_data MUST point to static/global memory, NOT stack variables
+ * (Trap #16)
+ * @warning 5. Check resource validity if timer may be stopped from ISR (Trap
+ * #6)
  *
  * @par Best Practice:
  * @code
@@ -121,19 +122,15 @@ typedef void (*timer_callback_t)(void *user_data);
  * @warning Callback must NOT create/delete timers (causes reentrancy issues)
  *
  * @code
- * safetimer_handle_t h = safetimer_create(1000, TIMER_MODE_REPEAT, my_callback, NULL);
- * if (h != SAFETIMER_INVALID_HANDLE)
+ * safetimer_handle_t h = safetimer_create(1000, TIMER_MODE_REPEAT, my_callback,
+ * NULL); if (h != SAFETIMER_INVALID_HANDLE)
  * {
  *     safetimer_start(h);
  * }
  * @endcode
  */
-safetimer_handle_t safetimer_create(
-    uint32_t            period_ms,
-    timer_mode_t        mode,
-    timer_callback_t    callback,
-    void               *user_data
-);
+safetimer_handle_t safetimer_create(uint32_t period_ms, timer_mode_t mode,
+                                    timer_callback_t callback, void *user_data);
 
 /**
  * @brief Start a timer
@@ -231,10 +228,8 @@ timer_error_t safetimer_delete(safetimer_handle_t handle);
  * }
  * @endcode
  */
-timer_error_t safetimer_set_period(
-    safetimer_handle_t  handle,
-    uint32_t            new_period_ms
-);
+timer_error_t safetimer_set_period(safetimer_handle_t handle,
+                                   uint32_t new_period_ms);
 
 /**
  * @brief Advance timer period (phase-locked, zero cumulative error)
@@ -245,13 +240,15 @@ timer_error_t safetimer_set_period(
  * eliminates cumulative timing error in periodic tasks like coroutines.
  *
  * **Key Difference:**
- * - `safetimer_set_period()`: expire_time = current_tick + new_period (resets phase)
+ * - `safetimer_set_period()`: expire_time = current_tick + new_period (resets
+ * phase)
  * - `safetimer_advance_period()`: expire_time += new_period (preserves phase)
  *
  * **Use Cases:**
  * - Coroutine SAFETIMER_CORO_WAIT() (called internally by macro)
  * - Any periodic task requiring zero-drift timing (LED blink, sensor polling)
- * - Long-running battery-powered applications (eliminates drift over days/months)
+ * - Long-running battery-powered applications (eliminates drift over
+ * days/months)
  *
  * **Behavior:**
  * - Active timer: Advances expire_time from last scheduled expiration
@@ -262,11 +259,13 @@ timer_error_t safetimer_set_period(
  * @param new_period_ms New period in milliseconds (1 ~ 2^31-1)
  *
  * @return TIMER_OK on success, error code otherwise
- * @retval TIMER_ERR_INVALID Invalid handle or period out of range (0 or >2^31-1)
+ * @retval TIMER_ERR_INVALID Invalid handle or period out of range (0 or
+ * >2^31-1)
  * @retval TIMER_ERR_NOT_FOUND Timer has been deleted
  *
  * @note Thread-safe (uses BSP critical section)
- * @note If timer execution is severely delayed, advances to the next future period
+ * @note If timer execution is severely delayed, advances to the next future
+ * period
  * @note Introduced in v1.3.1 to fix coroutine cumulative timing error
  *
  * @par Timing Error Comparison:
@@ -290,10 +289,8 @@ timer_error_t safetimer_set_period(
  * @see safetimer_set_period() for "reset from now" behavior
  * @see SAFETIMER_CORO_WAIT() macro in safetimer_coro.h
  */
-timer_error_t safetimer_advance_period(
-    safetimer_handle_t  handle,
-    uint32_t            new_period_ms
-);
+timer_error_t safetimer_advance_period(safetimer_handle_t handle,
+                                       uint32_t new_period_ms);
 
 /**
  * @brief Get currently executing timer handle (for coroutine auto-binding)
@@ -385,10 +382,7 @@ timer_error_t safetimer_stop(safetimer_handle_t handle);
  *
  * @note Requires ENABLE_QUERY_API=1 in safetimer_config.h
  */
-timer_error_t safetimer_get_status(
-    safetimer_handle_t  handle,
-    int                *is_running
-);
+timer_error_t safetimer_get_status(safetimer_handle_t handle, int *is_running);
 
 /**
  * @brief Get remaining time until expiration
@@ -403,10 +397,8 @@ timer_error_t safetimer_get_status(
  * @note Returns 0 for stopped timers
  * @note Requires ENABLE_QUERY_API=1 in safetimer_config.h
  */
-timer_error_t safetimer_get_remaining(
-    safetimer_handle_t  handle,
-    uint32_t           *remaining_ms
-);
+timer_error_t safetimer_get_remaining(safetimer_handle_t handle,
+                                      uint32_t *remaining_ms);
 
 /**
  * @brief Get timer pool usage statistics
@@ -419,15 +411,8 @@ timer_error_t safetimer_get_remaining(
  * @note Requires ENABLE_QUERY_API=1 in safetimer_config.h
  * @note For static applications, MAX_TIMERS is known at compile time
  */
-timer_error_t safetimer_get_pool_usage(
-    int  *used_count,
-    int  *total_count
-);
+timer_error_t safetimer_get_pool_usage(int *used_count, int *total_count);
 
 #endif /* ENABLE_QUERY_API */
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* SAFETIMER_H */

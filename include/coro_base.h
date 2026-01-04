@@ -40,10 +40,6 @@
 #ifndef CORO_BASE_H
 #define CORO_BASE_H
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 /* ========== Coroutine Context ========== */
 
 /**
@@ -62,12 +58,12 @@ extern "C" {
  * - C89: Uses unsigned short (guaranteed >= 16 bits by C standard)
  */
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 199901L
-    /* C99+ with stdint.h support */
-    #include <stdint.h>
-    #define CORO_CONTEXT uint16_t _coro_lc
+/* C99+ with stdint.h support */
+#include <stdint.h>
+#define CORO_CONTEXT uint16_t _coro_lc
 #else
-    /* C89 fallback: unsigned short is guaranteed >= 16 bits */
-    #define CORO_CONTEXT unsigned short _coro_lc
+/* C89 fallback: unsigned short is guaranteed >= 16 bits */
+#define CORO_CONTEXT unsigned short _coro_lc
 #endif
 
 /* ========== Coroutine Control Flow ========== */
@@ -83,17 +79,19 @@ extern "C" {
  * @note ctx->_coro_lc determines where execution resumes
  * @note 0xFFFF sentinel value indicates coroutine has exited permanently
  */
-#define CORO_BEGIN(ctx) \
-    if ((ctx)->_coro_lc == 0xFFFF) { return; } \
-    switch((ctx)->_coro_lc) { case 0:
+#define CORO_BEGIN(ctx)                                                        \
+  if ((ctx)->_coro_lc == 0xFFFF) {                                             \
+    return;                                                                    \
+  }                                                                            \
+  switch ((ctx)->_coro_lc) {                                                   \
+  case 0:
 
 /**
  * @brief End coroutine body
  *
  * Closes the switch statement started by CORO_BEGIN().
  */
-#define CORO_END() \
-    }
+#define CORO_END() }
 
 /**
  * @brief Yield execution and return to caller
@@ -103,10 +101,12 @@ extern "C" {
  * @note Does NOT modify any external state
  * @note Useful for explicit task switching
  */
-#define CORO_YIELD() do { \
-    (ctx)->_coro_lc = __LINE__; return; \
-    case __LINE__:; \
-} while(0)
+#define CORO_YIELD()                                                           \
+  do {                                                                         \
+    (ctx)->_coro_lc = __LINE__;                                                \
+    return;                                                                    \
+  case __LINE__:;                                                              \
+  } while (0)
 
 /**
  * @brief Wait until condition becomes true
@@ -127,13 +127,14 @@ extern "C" {
  * @warning Condition is re-evaluated on every coroutine invocation
  * @warning Avoid side effects in condition expression
  */
-#define CORO_WAIT_UNTIL(condition) do { \
-    (ctx)->_coro_lc = __LINE__; \
-    case __LINE__: \
-    if (!(condition)) { \
-        return; \
-    } \
-} while(0)
+#define CORO_WAIT_UNTIL(condition)                                             \
+  do {                                                                         \
+    (ctx)->_coro_lc = __LINE__;                                                \
+  case __LINE__:                                                               \
+    if (!(condition)) {                                                        \
+      return;                                                                  \
+    }                                                                          \
+  } while (0)
 
 /**
  * @brief Reset coroutine to beginning
@@ -142,21 +143,25 @@ extern "C" {
  *
  * @note Useful for restarting state machines or error recovery
  */
-#define CORO_RESET() do { \
-    (ctx)->_coro_lc = 0; return; \
-} while(0)
+#define CORO_RESET()                                                           \
+  do {                                                                         \
+    (ctx)->_coro_lc = 0;                                                       \
+    return;                                                                    \
+  } while (0)
 
 /**
  * @brief Exit coroutine permanently
  *
- * Coroutine enters infinite yield state. Next invocation will immediately return
- * due to CORO_BEGIN() guard check.
+ * Coroutine enters infinite yield state. Next invocation will immediately
+ * return due to CORO_BEGIN() guard check.
  *
  * @note To restart, call CORO_RESET_EXTERNAL() from outside the coroutine
  */
-#define CORO_EXIT() do { \
-    (ctx)->_coro_lc = 0xFFFF; return; \
-} while(0)
+#define CORO_EXIT()                                                            \
+  do {                                                                         \
+    (ctx)->_coro_lc = 0xFFFF;                                                  \
+    return;                                                                    \
+  } while (0)
 
 /* ========== Helper Macros ========== */
 
@@ -191,9 +196,5 @@ extern "C" {
  * - Use CORO_YIELD() for cooperative multitasking
  * - Use CORO_EXIT() when task is complete
  */
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* CORO_BASE_H */

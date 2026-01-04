@@ -37,11 +37,8 @@
 
 #include <stdint.h>
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-/* Forward declarations for BSP functions (user must include bsp.h or safetimer.h) */
+/* Forward declarations for BSP functions (user must include bsp.h or
+ * safetimer.h) */
 extern void bsp_enter_critical(void);
 extern void bsp_exit_critical(void);
 
@@ -65,7 +62,7 @@ typedef int8_t safetimer_sem_t;
  *
  * When SAFETIMER_CORO_WAIT_SEM times out, the semaphore is set to this value.
  */
-#define SAFETIMER_SEM_TIMEOUT  (-1)
+#define SAFETIMER_SEM_TIMEOUT (-1)
 
 /* ========== Semaphore Primitives ========== */
 
@@ -82,7 +79,7 @@ typedef int8_t safetimer_sem_t;
  * SAFETIMER_SEM_INIT(my_sem);  // my_sem = 0
  * @endcode
  */
-#define SAFETIMER_SEM_INIT(sem)  (sem) = 0
+#define SAFETIMER_SEM_INIT(sem) (sem) = 0
 
 /**
  * @brief Signal semaphore (set to ready state)
@@ -101,7 +98,10 @@ typedef int8_t safetimer_sem_t;
  * }
  * @endcode
  */
-#define SAFETIMER_SEM_SIGNAL(sem)  do { (sem) = 0; } while(0)
+#define SAFETIMER_SEM_SIGNAL(sem)                                              \
+  do {                                                                         \
+    (sem) = 0;                                                                 \
+  } while (0)
 
 /**
  * @brief Safe signal semaphore (skip if timed out)
@@ -120,9 +120,11 @@ typedef int8_t safetimer_sem_t;
  * }
  * @endcode
  */
-#define SAFETIMER_SEM_SIGNAL_SAFE(sem)  do { \
-    if ((sem) != SAFETIMER_SEM_TIMEOUT) (sem) = 0; \
-} while(0)
+#define SAFETIMER_SEM_SIGNAL_SAFE(sem)                                         \
+  do {                                                                         \
+    if ((sem) != SAFETIMER_SEM_TIMEOUT)                                        \
+      (sem) = 0;                                                               \
+  } while (0)
 
 /* ========== Coroutine Semaphore Wait ========== */
 
@@ -133,7 +135,8 @@ typedef int8_t safetimer_sem_t;
  *
  * @param sem Semaphore variable
  * @param poll_ms Polling interval in milliseconds
- * @param timeout_count Maximum number of polls before timeout (max 126 for int8_t)
+ * @param timeout_count Maximum number of polls before timeout (max 126 for
+ * int8_t)
  *
  * @note Total timeout = poll_ms × timeout_count milliseconds
  * @note After timeout, sem == SAFETIMER_SEM_TIMEOUT
@@ -153,39 +156,44 @@ typedef int8_t safetimer_sem_t;
  *
  * @warning Can ONLY be used inside SAFETIMER_CORO_BEGIN/END block
  * @warning ctx variable must be defined (from SAFETIMER_CORO_BEGIN)
- * @warning CRITICAL: timeout_count must be ≤ 126 (int8_t limitation, fixes Trap #10)
- * @warning Overflow example: timeout_count=127 → wraps to -1 → immediate timeout!
+ * @warning CRITICAL: timeout_count must be ≤ 126 (int8_t limitation, fixes Trap
+ * #10)
+ * @warning Overflow example: timeout_count=127 → wraps to -1 → immediate
+ * timeout!
  * @warning For long timeouts, increase poll_ms instead of timeout_count
  */
-#define SAFETIMER_CORO_WAIT_SEM(sem, poll_ms, timeout_count) do { \
-    /* Compile-time check for timeout_count overflow (fixes Trap #10) */ \
-    _Static_assert((timeout_count) <= 126, \
-        "SAFETIMER_CORO_WAIT_SEM: timeout_count must be <= 126 (int8_t limit). " \
-        "Use larger poll_ms for longer timeouts."); \
-    bsp_enter_critical(); \
-    if ((sem) == 0) { \
-        bsp_exit_critical(); \
-        break;  /* Already signaled */ \
-    } \
-    (sem) = (timeout_count) + 1; \
-    bsp_exit_critical(); \
-    safetimer_set_period((ctx)->_coro_handle, (poll_ms)); \
-    (ctx)->_coro_lc = __LINE__; \
-    case __LINE__: \
-    bsp_enter_critical(); \
-    if ((sem) == 0) { \
-        bsp_exit_critical(); \
-        break;  /* Signaled during yield */ \
-    } \
-    if ((sem) > 1) { \
-        (sem)--; \
-        bsp_exit_critical(); \
-        return; \
-    } else { \
-        if ((sem) != 0) (sem) = SAFETIMER_SEM_TIMEOUT; \
-        bsp_exit_critical(); \
-    } \
-} while(0)
+#define SAFETIMER_CORO_WAIT_SEM(sem, poll_ms, timeout_count)                   \
+  do {                                                                         \
+    /* Compile-time check for timeout_count overflow (fixes Trap #10) */       \
+    _Static_assert((timeout_count) <= 126,                                     \
+                   "SAFETIMER_CORO_WAIT_SEM: timeout_count must be <= 126 "    \
+                   "(int8_t limit). "                                          \
+                   "Use larger poll_ms for longer timeouts.");                 \
+    bsp_enter_critical();                                                      \
+    if ((sem) == 0) {                                                          \
+      bsp_exit_critical();                                                     \
+      break; /* Already signaled */                                            \
+    }                                                                          \
+    (sem) = (timeout_count) + 1;                                               \
+    bsp_exit_critical();                                                       \
+    safetimer_set_period((ctx)->_coro_handle, (poll_ms));                      \
+    (ctx)->_coro_lc = __LINE__;                                                \
+  case __LINE__:                                                               \
+    bsp_enter_critical();                                                      \
+    if ((sem) == 0) {                                                          \
+      bsp_exit_critical();                                                     \
+      break; /* Signaled during yield */                                       \
+    }                                                                          \
+    if ((sem) > 1) {                                                           \
+      (sem)--;                                                                 \
+      bsp_exit_critical();                                                     \
+      return;                                                                  \
+    } else {                                                                   \
+      if ((sem) != 0)                                                          \
+        (sem) = SAFETIMER_SEM_TIMEOUT;                                         \
+      bsp_exit_critical();                                                     \
+    }                                                                          \
+  } while (0)
 
 /**
  * @brief Wait for semaphore indefinitely (no timeout)
@@ -204,71 +212,24 @@ typedef int8_t safetimer_sem_t;
  * // Execution never proceeds unless semaphore is signaled
  * @endcode
  */
-#define SAFETIMER_CORO_WAIT_SEM_FOREVER(sem, poll_ms) do { \
-    (sem) = 1; \
-    safetimer_set_period((ctx)->_coro_handle, (poll_ms)); \
-    (ctx)->_coro_lc = __LINE__; \
-    case __LINE__: \
-    if ((sem) > 0) return; \
-} while(0)
+#define SAFETIMER_CORO_WAIT_SEM_FOREVER(sem, poll_ms)                          \
+  do {                                                                         \
+    (sem) = 1;                                                                 \
+    safetimer_set_period((ctx)->_coro_handle, (poll_ms));                      \
+    (ctx)->_coro_lc = __LINE__;                                                \
+  case __LINE__:                                                               \
+    if ((sem) > 0)                                                             \
+      return;                                                                  \
+  } while (0)
 
 /* ========== Usage Guidelines ========== */
 
 /**
- * @par Semaphore Patterns:
- *
- * 1. **Producer-Consumer:**
- * @code
- * // Producer (interrupt)
- * void data_ready_isr(void) {
- *     buffer[write_idx++] = read_sensor();
- *     SAFETIMER_SEM_SIGNAL(data_sem);
- * }
- *
- * // Consumer (coroutine)
- * SAFETIMER_CORO_WAIT_SEM(data_sem, 10, 50);
- * process_buffer();
- * @endcode
- *
- * 2. **Event Synchronization:**
- * @code
- * // Event trigger
- * if (button_pressed()) {
- *     SAFETIMER_SEM_SIGNAL(button_sem);
- * }
- *
- * // Event handler
- * SAFETIMER_CORO_WAIT_SEM(button_sem, 10, 100);
- * handle_button_press();
- * @endcode
- *
- * 3. **Timeout Handling:**
- * @code
- * SAFETIMER_CORO_WAIT_SEM(ack_sem, 10, 300);  // 3 second timeout
- * if (ack_sem == SAFETIMER_SEM_TIMEOUT) {
- *     retry_transmission();
- * } else {
- *     transmission_confirmed();
- * }
- * @endcode
- *
  * @par Best Practices:
- *
  * - Always check for SAFETIMER_SEM_TIMEOUT after wait
  * - Use SIGNAL_SAFE in delayed/interrupt contexts
- * - Avoid WAIT_SEM_FOREVER unless you have external reset mechanism
- * - Keep semaphore variables global or static (persistent storage)
- * - Never use semaphore as loop counter (undefined behavior)
- *
- * @par Interrupt Safety:
- *
+ * - Keep semaphore variables global or static
  * - SAFETIMER_SEM_SIGNAL is interrupt-safe (single assignment)
- * - Semaphore must be int16_t for atomic read/write on 8-bit MCUs
- * - No critical sections needed for basic signal/wait operations
  */
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* SAFETIMER_SEM_H */

@@ -93,7 +93,8 @@ static volatile uint8_t s_processing = 0;
  * @brief Currently executing timer handle (for auto-binding coroutines)
  *
  * Set to the active handle during callback execution in safetimer_process().
- * Allows coroutines to discover their own handle via safetimer_get_current_handle().
+ * Allows coroutines to discover their own handle via
+ * safetimer_get_current_handle().
  *
  * RAM cost: +1 byte
  */
@@ -104,11 +105,14 @@ static safetimer_handle_t g_executing_handle = SAFETIMER_INVALID_HANDLE;
 /**
  * @brief Dynamic handle encoding based on MAX_TIMERS
  *
- * Optimizes bit allocation: uses minimum bits for index, maximizes generation bits.
+ * Optimizes bit allocation: uses minimum bits for index, maximizes generation
+ * bits.
  *
  * Examples:
- * - MAX_TIMERS=8:  [gen:5bit (1~31)][idx:3bit (0~7)]  ← 4x better ABA protection
- * - MAX_TIMERS=16: [gen:4bit (1~15)][idx:4bit (0~15)] ← 2x better ABA protection
+ * - MAX_TIMERS=8:  [gen:5bit (1~31)][idx:3bit (0~7)]  ← 4x better ABA
+ * protection
+ * - MAX_TIMERS=16: [gen:4bit (1~15)][idx:4bit (0~15)] ← 2x better ABA
+ * protection
  * - MAX_TIMERS=32: [gen:3bit (1~7)][idx:5bit (0~31)]  ← Original behavior
  *
  * Generation: 1 ~ HANDLE_GEN_MAX (0 reserved for INVALID_HANDLE = -1)
@@ -116,15 +120,15 @@ static safetimer_handle_t g_executing_handle = SAFETIMER_INVALID_HANDLE;
 
 /* Compile-time calculation of required index bits */
 #if MAX_TIMERS <= 2
-  #define HANDLE_INDEX_BITS 1
+#define HANDLE_INDEX_BITS 1
 #elif MAX_TIMERS <= 4
-  #define HANDLE_INDEX_BITS 2
+#define HANDLE_INDEX_BITS 2
 #elif MAX_TIMERS <= 8
-  #define HANDLE_INDEX_BITS 3
+#define HANDLE_INDEX_BITS 3
 #elif MAX_TIMERS <= 16
-  #define HANDLE_INDEX_BITS 4
+#define HANDLE_INDEX_BITS 4
 #else
-  #define HANDLE_INDEX_BITS 5
+#define HANDLE_INDEX_BITS 5
 #endif
 
 /* Derive generation bits and masks */
@@ -237,7 +241,8 @@ safetimer_handle_t safetimer_create(uint32_t period_ms, timer_mode_t mode,
 
   /* Allocate next generation ID (1~HANDLE_GEN_MAX, wraps, 0 reserved) */
   g_timer_pool.next_generation++;
-  if (g_timer_pool.next_generation == 0 || g_timer_pool.next_generation > HANDLE_GEN_MAX) {
+  if (g_timer_pool.next_generation == 0 ||
+      g_timer_pool.next_generation > HANDLE_GEN_MAX) {
     g_timer_pool.next_generation = 1;
   }
   generation = g_timer_pool.next_generation;
@@ -257,10 +262,12 @@ safetimer_handle_t safetimer_create(uint32_t period_ms, timer_mode_t mode,
   /* Prevent handle collision with SAFETIMER_INVALID_HANDLE (-1)
    * Edge case: When handle type is int8_t or when generation/index combination
    * produces -1, we must skip to next generation to ensure valid handle.
-   * Loop guarantees we find a valid handle (max iterations = HANDLE_GEN_MAX). */
+   * Loop guarantees we find a valid handle (max iterations = HANDLE_GEN_MAX).
+   */
   while (handle == SAFETIMER_INVALID_HANDLE) {
     g_timer_pool.next_generation++;
-    if (g_timer_pool.next_generation == 0 || g_timer_pool.next_generation > HANDLE_GEN_MAX) {
+    if (g_timer_pool.next_generation == 0 ||
+        g_timer_pool.next_generation > HANDLE_GEN_MAX) {
       g_timer_pool.next_generation = 1;
     }
     generation = g_timer_pool.next_generation;
@@ -446,40 +453,14 @@ timer_error_t safetimer_set_period(safetimer_handle_t handle,
 /**
  * @brief Advance timer period (phase-locked, zero cumulative error)
  *
- * Unlike safetimer_set_period() which resets countdown from current tick,
- * this function advances the expire_time by the new period, maintaining
- * phase-locking and eliminating cumulative timing error in coroutines.
- *
- * Implementation details:
- * - Calculates last_expire = current_expire_time - old_period
- * - Sets new_expire_time = last_expire + new_period
- * - If new_expire_time is in the past, advances it to the future
- * - Uses ADR-005 overflow-safe comparison (safetimer_tick_diff)
- * - Thread-safe with BSP critical section protection
- *
- * Use cases:
- * - Coroutine SAFETIMER_CORO_WAIT() for zero-drift periodic tasks
- * - Any scenario requiring strict phase-locking (LED blink, sensor polling)
- *
- * Difference from safetimer_set_period():
- * - set_period(): expire_time = current_tick + period (resets phase)
- * - advance_period(): expire_time += period (preserves phase)
+ * Advances expire_time by the new period, preserving phase-locking.
+ * Used internally by SAFETIMER_CORO_WAIT() for zero-drift timing.
  *
  * @param handle Valid timer handle
  * @param new_period_ms New period in milliseconds (1 ~ 2^31-1)
- *
  * @return TIMER_OK on success, error code otherwise
- * @retval TIMER_ERR_INVALID Invalid handle or period out of range
- * @retval TIMER_ERR_NOT_FOUND Timer not found or deleted
  *
- * @note If timer is inactive, behaves like set_period() (no previous phase)
- * @note Handles overflow/wraparound automatically (ADR-005)
- *
- * @par Example:
- * @code
- * // Coroutine internal use (via macro)
- * SAFETIMER_CORO_WAIT(100);  // Uses advance_period() internally
- * @endcode
+ * @note If timer is inactive, behaves like set_period()
  */
 timer_error_t safetimer_advance_period(safetimer_handle_t handle,
                                        uint32_t new_period_ms) {
@@ -596,15 +577,9 @@ safetimer_handle_t safetimer_get_current_handle(void) {
 }
 
 /**
- * @brief Process all active timers
+ * @brief Process all active timers (call periodically from main loop)
  *
- * Implementation details (ADR-005 CRITICAL):
- * - Uses signed difference comparison: (long)(current - expire) >= 0
- * - Handles 32-bit wraparound automatically (two's complement)
- * - O(n) algorithm: iterates all MAX_TIMERS slots
- * - Triggers callback outside critical section for safety
- * - Repeating timers automatically reset expire_time
- * - Recursion guard prevents stack overflow (Trap #19)
+ * O(n) algorithm with recursion guard to prevent stack overflow.
  */
 void safetimer_process(void) {
   uint8_t i;
