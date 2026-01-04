@@ -18,23 +18,31 @@
 /**
  * @brief Maximum number of concurrent timers
  *
- * Range: 1 ~ 32 (limited by 8-bit bitmap in v1.0)
+ * Range: 1 ~ 32
  * Default: 4 timers (optimized for 176-byte RAM MCUs like SC8F072)
  *
- * RAM Impact: 14 bytes per timer + 2 bytes overhead
- *   4 timers  = 58 bytes RAM  (recommended for SC8F072)
- *   8 timers  = 114 bytes RAM
- *   16 timers = 226 bytes RAM
- *   32 timers = 450 bytes RAM
+ * RAM Impact (persistent, global variables):
+ *   - Bitmap: 1 byte (MAX_TIMERS<=8) or 4 bytes (MAX_TIMERS>8)
+ *   - Per timer slot: 15 bytes (32-bit tick) or 11 bytes (16-bit tick)
+ *   - Overhead: 2 bytes (s_processing + g_executing_handle)
+ *
+ *   MAX_TIMERS=4:  62 bytes (32-bit) | 46 bytes (16-bit)
+ *   MAX_TIMERS=8:  122 bytes (32-bit) | 90 bytes (16-bit)
+ *   MAX_TIMERS=16: 246 bytes (32-bit) | 182 bytes (16-bit)
+ *   MAX_TIMERS=32: 486 bytes (32-bit) | 358 bytes (16-bit)
+ *
+ * Stack Usage (temporary, during function calls):
+ *   - safetimer_process(): ~20-30 bytes (local variables)
+ *   - safetimer_advance_period(): ~30-40 bytes (local variables)
+ *   - User callback: varies (part of call chain)
  *
  * Performance Impact: O(n) processing time
  *   4 timers  @ 8MHz = ~5us
  *   8 timers  @ 8MHz = ~10us
  *   16 timers @ 8MHz = ~20us
  *
- * @note For SC8F072 (176B RAM): MAX_TIMERS=4 leaves ~74B for user code
- * @note For larger RAM MCUs: Increase to 8 or 16 as needed
- * @note Verify RAM budget before increasing (see DEC-002)
+ * @note For SC8F072 (176B RAM): MAX_TIMERS=4 leaves ~110B for user code
+ * @note For larger RAM MCUs: Increase to 8, 16, or 32 as needed
  */
 #ifndef MAX_TIMERS
 #define MAX_TIMERS 4

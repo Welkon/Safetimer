@@ -544,6 +544,15 @@ timer_error_t safetimer_advance_period(safetimer_handle_t handle,
       /* Release critical section before expensive division */
       bsp_exit_critical();
 
+#if ENABLE_DEBUG_ASSERT
+      /* Defensive: period should never be 0 (validated in API entry) */
+      if (new_period_ms == 0) {
+        bsp_enter_critical(); /* Restore critical section state */
+        bsp_exit_critical();
+        return TIMER_ERR_INVALID; /* Fail safe */
+      }
+#endif
+
       /* Behind schedule - advance by N periods to catch up (OUTSIDE critical
        * section) */
       missed_periods = ((uint32_t)lag / new_period_ms) + 1U;
@@ -953,6 +962,13 @@ STATIC void trigger_timer(uint8_t slot_index, bsp_tick_t current_tick,
 
     if (lag >= 0) {
       /* We're behind schedule - advance by N periods to catch up */
+#if ENABLE_DEBUG_ASSERT
+      /* Defensive: period should never be 0 (validated in create/set_period) */
+      if (period == 0) {
+        bsp_enter_critical(); /* Restore critical section state */
+        return;               /* Avoid divide-by-zero, fail safe */
+      }
+#endif
       missed_periods = ((uint32_t)lag / (uint32_t)period) + 1U;
       new_expire = old_expire + (bsp_tick_t)(missed_periods * (uint32_t)period);
     } else {
