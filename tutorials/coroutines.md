@@ -58,20 +58,85 @@ int main(void) {
 | `CORO_BEGIN(ctx)` | Start coroutine body |
 | `CORO_END()` | End coroutine body |
 | `CORO_YIELD()` | Pause and return |
+| `CORO_WAIT_UNTIL(condition)` | Wait until condition is true |
 | `CORO_RESET()` | Restart from beginning |
 | `CORO_EXIT()` | Exit permanently |
 | `CORO_IS_EXITED(ctx)` | Check if exited |
 
-**No timing features** - You control when to call the coroutine.
+**No automatic timing** - You control when to call the coroutine.
 
 ### Complete Standalone Examples
 
 See [`examples/coro_standalone/`](../examples/coro_standalone/) for:
 - State machine patterns
 - Counter examples
+- Manual time-slicing scheduler
 - Build instructions for C89 projects
 
-### When to Add SafeTimer?
+### Adding Timing with Manual Scheduling
+
+You can add timing features to standalone coroutines using **manual time-slicing** with interrupt-driven tick counters:
+
+```c
+#include "coro_base.h"
+
+/* Interrupt provides 1ms tick */
+volatile uint32_t g_ticks = 0;
+void TIM_IRQHandler(void) { g_ticks++; }
+
+/* Coroutine context with timing state */
+typedef struct {
+    CORO_CONTEXT;
+    uint32_t start_time;
+    int sensor_value;
+} sensor_ctx_t;
+
+/* Coroutine with timing logic */
+void sensor_task(sensor_ctx_t *ctx) {
+    CORO_BEGIN(ctx);
+
+    while (1) {
+        /* Power on sensor */
+        sensor_power_on();
+
+        /* Wait 100ms for warmup using CORO_WAIT_UNTIL */
+        ctx->start_time = g_ticks;
+        CORO_WAIT_UNTIL(g_ticks - ctx->start_time >= 100);
+
+        /* Read sensor */
+        ctx->sensor_value = sensor_read();
+
+        /* Wait 1000ms before next reading */
+        ctx->start_time = g_ticks;
+        CORO_WAIT_UNTIL(g_ticks - ctx->start_time >= 1000);
+    }
+
+    CORO_END();
+}
+
+/* Manual scheduling in main loop */
+int main(void) {
+    sensor_ctx_t ctx = {0};
+
+    while (1) {
+        sensor_task(&ctx);  /* Call every iteration */
+        /* ... other tasks ... */
+    }
+}
+```
+
+**Comparison: Manual vs. SafeTimer Scheduling**
+
+| Aspect | Manual Scheduling | SafeTimer Scheduling |
+|--------|-------------------|----------------------|
+| **RAM overhead** | Zero (user-managed) | 14 bytes per timer |
+| **Code simplicity** | More verbose (manual tick tracking) | Clean (`SAFETIMER_CORO_WAIT(100)`) |
+| **Flexibility** | Full control, custom logic | Standard periodic/one-shot patterns |
+| **Best for** | Ultra-low-memory systems, custom scheduling | General embedded applications |
+
+**See [`examples/coro_standalone/example_manual_scheduler.c`](../examples/coro_standalone/example_manual_scheduler.c) for complete working example.**
+
+### When to Upgrade to SafeTimer?
 
 If you need **timing features** (delays, polling intervals), upgrade to `safetimer_coro.h`:
 

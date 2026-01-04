@@ -14,7 +14,7 @@
  * - Zero dependencies (no includes, pure macros)
  * - C89 compatible
  * - Minimal RAM (2 bytes per coroutine)
- * - Supports YIELD, RESET, EXIT operations
+ * - Supports YIELD, WAIT_UNTIL, RESET, EXIT operations
  *
  * @par Usage Example (Standalone)
  * @code
@@ -106,6 +106,33 @@ extern "C" {
 #define CORO_YIELD() do { \
     (ctx)->_coro_lc = __LINE__; return; \
     case __LINE__:; \
+} while(0)
+
+/**
+ * @brief Wait until condition becomes true
+ *
+ * Repeatedly yields until the condition evaluates to true.
+ * Each time the coroutine is invoked, checks the condition.
+ * If false, yields. If true, continues to next line.
+ *
+ * @param condition Boolean expression to evaluate
+ *
+ * @note Useful for polling external state (timers, sensors, flags)
+ * @note Example with manual time-slicing:
+ * @code
+ *   uint32_t start = g_ticks;
+ *   CORO_WAIT_UNTIL(g_ticks - start >= 100);  // Wait 100ms
+ * @endcode
+ *
+ * @warning Condition is re-evaluated on every coroutine invocation
+ * @warning Avoid side effects in condition expression
+ */
+#define CORO_WAIT_UNTIL(condition) do { \
+    (ctx)->_coro_lc = __LINE__; \
+    case __LINE__: \
+    if (!(condition)) { \
+        return; \
+    } \
 } while(0)
 
 /**
