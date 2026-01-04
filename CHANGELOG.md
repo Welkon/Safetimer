@@ -5,6 +5,21 @@ All notable changes to SafeTimer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### 📝 Documentation
+
+**Cleanup and Consolidation:**
+- Removed `.bmad/` directory (AI workflow methodology, not part of library)
+- Removed `docs/user_guide.md` (consolidated into `tutorials/` directory)
+- Cleaned up `docs/architecture.md` YAML frontmatter metadata
+- Updated documentation structure in README files
+- Enhanced `tutorials/README.md` with clearer learning path and technical reference links
+
+**Link Updates:**
+- Updated `examples/sc8f072/README.md` to point to tutorials instead of deleted user guide
+- Added direct links to API Reference and Architecture documents in all README files
+
 ## [1.3.1] - 2025-12-19
 
 ### 🐛 关键修复：消除协程累积定时误差

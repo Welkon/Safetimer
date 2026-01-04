@@ -242,7 +242,7 @@ Flash = Base + (QUERY_API × 200) + (PARAM_CHECK × 150)
 
 ### Timer Pool Fragmentation
 
-Use [Design Guidelines](design-guidelines.md) to minimize fragmentation:
+Use [Best Practices](use-cases.md) to minimize fragmentation:
 - **70-80% static timers** (created once, never deleted)
 - **20-30% dynamic timers** (created/deleted as needed)
 
@@ -280,7 +280,7 @@ Use [Design Guidelines](design-guidelines.md) to minimize fragmentation:
 
 - **API Details:** See `include/safetimer_config.h` for all configuration options
 - **Hardware Porting:** [BSP Porting Guide](bsp-porting.md)
-- **Design Patterns:** [Design Guidelines](design-guidelines.md)
+- **Design Patterns:** [Use Cases & Best Practices](use-cases.md)
 
 ---
 

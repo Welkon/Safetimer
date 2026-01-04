@@ -105,20 +105,26 @@ safetimer_get_pool_usage(&used, &total);
 
 ### Tutorials
 
+Start here to learn SafeTimer: **[Tutorial Index](tutorials/README.md)**
+
 | Tutorial | Description |
 |----------|-------------|
 | [Quick Start](tutorials/quick-start.md) | Installation, BSP, first timer |
 | [Coroutines Tutorial](tutorials/coroutines.md) | Async programming with coroutines (v1.3.0+) |
 | [Configuration & Tuning](tutorials/configuration-and-tuning.md) | Resource optimization, compile-time flags |
-| [Use Cases & Best Practices](tutorials/use-cases.md) | Common patterns and anti-patterns |
-| [Design Guidelines](tutorials/design-guidelines.md) | Timer pool management, slot allocation |
+| [Use Cases & Best Practices](tutorials/use-cases.md) | Common patterns, anti-patterns, design guidelines |
 | [Testing Guide](tutorials/testing.md) | Unit tests, coverage, CI/CD |
 | [BSP Porting Guide](tutorials/bsp-porting.md) | Hardware abstraction implementation |
 | [Architecture Notes](tutorials/architecture-notes.md) | Overflow handling, design decisions |
 
-### API Reference
+### Technical Reference
 
-See header files in `include/` directory:
+- **[API Reference](docs/api_reference.md)** - Complete API documentation
+- **[Architecture Document](docs/architecture.md)** - Design decisions and ADRs
+
+### Header Files
+
+Browse API directly in `include/` directory:
 - `safetimer.h` - Core API documentation
 - `safetimer_config.h` - Configuration options
 - `safetimer_coro.h` - Coroutine macros (v1.3.0+)

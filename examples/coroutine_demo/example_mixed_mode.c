@@ -115,7 +115,6 @@ void setup_mixed_mode(void)
 
     /* Pattern 3: Coroutine (sensor polling) */
     h_sensor = safetimer_create(10, TIMER_MODE_REPEAT, sensor_coroutine, &sensor_ctx);
-    sensor_ctx._coro_handle = h_sensor;  /* Required for SLEEP/WAIT_UNTIL */
     safetimer_start(h_sensor);
 }
 

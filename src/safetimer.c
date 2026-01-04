@@ -254,6 +254,20 @@ safetimer_handle_t safetimer_create(uint32_t period_ms, timer_mode_t mode,
   /* Encode handle: [generation:3bit][index:5bit] */
   handle = ENCODE_HANDLE(generation, slot_index);
 
+  /* Prevent handle collision with SAFETIMER_INVALID_HANDLE (-1)
+   * Edge case: When handle type is int8_t or when generation/index combination
+   * produces -1, we must skip to next generation to ensure valid handle.
+   * Loop guarantees we find a valid handle (max iterations = HANDLE_GEN_MAX). */
+  while (handle == SAFETIMER_INVALID_HANDLE) {
+    g_timer_pool.next_generation++;
+    if (g_timer_pool.next_generation == 0 || g_timer_pool.next_generation > HANDLE_GEN_MAX) {
+      g_timer_pool.next_generation = 1;
+    }
+    generation = g_timer_pool.next_generation;
+    g_timer_pool.slots[slot_index].generation = generation;
+    handle = ENCODE_HANDLE(generation, slot_index);
+  }
+
   bsp_exit_critical();
 
   return handle;

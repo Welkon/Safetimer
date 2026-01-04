@@ -105,20 +105,26 @@ safetimer_get_pool_usage(&used, &total);
 
 ### 教程
 
+从这里开始学习 SafeTimer：**[教程索引](tutorials/README.md)**
+
 | 教程 | 说明 |
 |------|------|
 | [快速开始](tutorials/quick-start.md) | 安装、BSP、首个定时器 |
 | [协程教程](tutorials/coroutines.md) | 使用协程进行异步编程（v1.3.0+） |
 | [配置与调优](tutorials/configuration-and-tuning.md) | 资源优化、编译时标志 |
-| [用例与最佳实践](tutorials/use-cases.md) | 常见模式和反模式 |
-| [设计指南](tutorials/design-guidelines.md) | 定时器池管理、槽位分配 |
+| [用例与最佳实践](tutorials/use-cases.md) | 常见模式、反模式、设计指南 |
 | [测试指南](tutorials/testing.md) | 单元测试、覆盖率、CI/CD |
 | [BSP 移植指南](tutorials/bsp-porting.md) | 硬件抽象层实现 |
 | [架构说明](tutorials/architecture-notes.md) | 溢出处理、设计决策 |
 
-### API 参考
+### 技术参考
 
-参见 `include/` 目录中的头文件：
+- **[API 参考文档](docs/api_reference.md)** - 完整 API 文档
+- **[架构文档](docs/architecture.md)** - 设计决策和 ADR
+
+### 头文件
+
+在 `include/` 目录中直接查看 API：
 - `safetimer.h` - 核心 API 文档
 - `safetimer_config.h` - 配置选项
 - `safetimer_coro.h` - 协程宏（v1.3.0+）

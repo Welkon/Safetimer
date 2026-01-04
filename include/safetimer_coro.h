@@ -153,7 +153,10 @@ extern "C" {
  * @endcode
  */
 #define SAFETIMER_CORO_SLEEP(ms) do { \
-    safetimer_advance_period((ctx)->_coro_handle, (ms)); \
+    if ((ctx)->_coro_handle != SAFETIMER_INVALID_HANDLE && \
+        (ctx)->_coro_handle != 0) { \
+        safetimer_advance_period((ctx)->_coro_handle, (ms)); \
+    } \
     (ctx)->_coro_lc = __LINE__; return; \
     case __LINE__:; \
 } while(0)
@@ -176,7 +179,10 @@ extern "C" {
  * @endcode
  */
 #define SAFETIMER_CORO_WAIT_UNTIL(cond, poll_ms) do { \
-    safetimer_set_period((ctx)->_coro_handle, (poll_ms)); \
+    if ((ctx)->_coro_handle != SAFETIMER_INVALID_HANDLE && \
+        (ctx)->_coro_handle != 0) { \
+        safetimer_set_period((ctx)->_coro_handle, (poll_ms)); \
+    } \
     (ctx)->_coro_lc = __LINE__; \
     case __LINE__: \
     if (!(cond)) return; \

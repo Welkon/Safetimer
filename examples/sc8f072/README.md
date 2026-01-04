@@ -556,9 +556,9 @@ void bsp_exit_critical(void) {
 
 ## 📚 Additional Resources
 
-- **SafeTimer Documentation:** See `../../docs/` directory
+- **Quick Start Guide:** `../../tutorials/quick-start.md`
+- **Tutorial Index:** `../../tutorials/README.md`
 - **API Reference:** `../../docs/api_reference.md`
-- **User Guide:** `../../docs/user_guide.md`
 - **Architecture:** `../../docs/architecture.md`
 
 ---

@@ -187,7 +187,6 @@ int main(void) {
     safetimer_handle_t h_sensor = safetimer_create(
         10, TIMER_MODE_REPEAT, sensor_coro, &sensor_ctx
     );
-    sensor_ctx._coro_handle = h_sensor;
     safetimer_start(h_sensor);
 
     /* Model C: StateSmith FSM for protocol handling */
@@ -376,7 +375,6 @@ int main(void) {
     safetimer_handle_t h = safetimer_create(
         10, TIMER_MODE_REPEAT, uart_protocol_coro, &ctx
     );
-    ctx._coro_handle = h;  /* Store handle for SLEEP */
     safetimer_start(h);
 
     while (1) {

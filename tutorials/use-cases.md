@@ -302,7 +302,7 @@ void retry_cb(void *data) {
 
 - **Configuration:** [Configuration & Tuning](configuration-and-tuning.md)
 - **Advanced Patterns:** [Coroutines Tutorial](coroutines.md)
-- **Implementation:** [Design Guidelines](design-guidelines.md)
+- **Hardware Porting:** [BSP Porting Guide](bsp-porting.md)
 
 ---
 

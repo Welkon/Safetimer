@@ -67,19 +67,25 @@ If callback erroneously calls `safetimer_process()` again, causes recursive stac
 ---
 
 ### Trap #1: ABA Handle Reuse
-**Status:** ✅ Fixed in v1.3.2
+**Status:** ✅ Fixed in v1.3.2, Enhanced in v1.4.0
 **Severity:** Critical
 
 **Problem:**
 Documentation claimed "algebraic counter" prevents reuse, but code only used array index (0~N). After deleting handle 0, new timer may immediately reuse handle 0.
 
-**Fix:**
+**Fix (v1.3.2):**
 - Added 3-bit generation counter (1~7) to `timer_slot_t`
 - Handle encoding: `[generation:3bit][index:5bit]`
 - `validate_handle()` checks both index and generation
 - **RAM Cost:** +9 bytes (MAX_TIMERS=8)
 
-**Code Location:** `src/safetimer.c:82-98`, `src/safetimer.c:675-699`
+**Enhancement (v1.4.0):**
+- Added collision detection loop in `safetimer_create()`
+- Prevents `SAFETIMER_INVALID_HANDLE` (-1) collision edge case
+- When generation/index combination produces -1, advances generation counter
+- **Impact:** Guarantees valid handles on all architectures (including int8_t)
+
+**Code Location:** `src/safetimer.c:82-98`, `src/safetimer.c:257-269`, `src/safetimer.c:675-699`
 
 ---
 
@@ -341,6 +347,83 @@ On 8-bit MCU, reading 16/32-bit tick counter without critical section may read c
 **Fix:**
 - BSP layer must protect multi-byte reads with `bsp_enter_critical()`
 - **Code Location:** `tutorials/bsp-porting.md`
+
+---
+
+### Trap #24: Brute Force Authentication Retry (Anti-DoS Pattern)
+**Status:** ✅ Solved in v1.4.0 (Coroutine Pattern)
+**Severity:** Medium (Security)
+
+**Problem:**
+Traditional blocking authentication loops allow unlimited retries:
+```c
+while (1) {
+    send_challenge();
+    wait_for_response();  /* BLOCKS SYSTEM */
+    if (verify()) break;
+    /* No retry limit - attacker can brute force */
+}
+```
+
+**Issues:**
+- No timeout enforcement → System freezes if response never arrives
+- No retry limit → Vulnerable to brute force attacks
+- No backoff → High CPU usage during attack
+- Global state machine required → Complex code
+
+**Solution (Coroutine Pattern):**
+```c
+typedef struct {
+    SAFETIMER_CORO_CONTEXT;
+    uint8_t retries;
+    uint32_t lockout_duration;
+} auth_ctx_t;
+
+void auth_task(void *user_data) {
+    auth_ctx_t *ctx = (auth_ctx_t *)user_data;
+    SAFETIMER_CORO_BEGIN(ctx);
+
+    while (1) {
+        send_challenge();
+
+        /* Non-blocking timeout (5 seconds) */
+        SAFETIMER_CORO_WAIT_UNTIL(has_response() || timeout(), 50);
+
+        if (!has_response() || !verify()) {
+            ctx->retries++;
+            if (ctx->retries >= 3) {
+                /* Hard lockout after 3 failures */
+                SAFETIMER_CORO_SLEEP(10000);
+                ctx->retries = 0;
+            } else {
+                /* Exponential backoff: 1s, 2s, 3s */
+                SAFETIMER_CORO_SLEEP(1000 * ctx->retries);
+            }
+        } else {
+            ctx->retries = 0;  /* Success - reset */
+            SAFETIMER_CORO_SLEEP(10000);
+        }
+    }
+
+    SAFETIMER_CORO_END();
+}
+```
+
+**Benefits:**
+- ✅ Non-blocking: System remains responsive
+- ✅ Timeout enforcement: Automatically counts timeout as failure
+- ✅ Linear backoff: Progressive delays (1s → 2s → 3s)
+- ✅ Hard lockout: 10-second freeze after 3 failures
+- ✅ State persistence: Retry counter survives across function calls
+- ✅ No global state: Context embedded in coroutine structure
+
+**Security Recommendations:**
+- Use cryptographically secure random (CSPRNG, not LCG)
+- Implement real signature verification (HMAC/RSA/ECC)
+- Add replay attack prevention (nonce tracking)
+- Consider persistent lockout state (survives power cycle)
+
+**Code Location:** `examples/coroutine_demo/example_coroutine.c:184-281`
 
 ---
 
