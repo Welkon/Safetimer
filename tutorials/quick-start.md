@@ -9,19 +9,15 @@ This guide walks you through integrating SafeTimer into your embedded project in
 Copy these files to your project directory:
 
 ```bash
-# Step 1: Copy required files (4 files)
+# Copy required files (4 files)
 cp SafeTimer/include/safetimer.h your_project/
 cp SafeTimer/include/safetimer_config.h your_project/
 cp SafeTimer/include/bsp.h your_project/
 cp SafeTimer/src/safetimer.c your_project/
-
-# Step 2 (Optional): Copy helper API if needed
-cp SafeTimer/include/safetimer_helpers.h your_project/
 ```
 
 **File Summary:**
 - ✅ **Required (4 files):** safetimer.h, safetimer_config.h, bsp.h, safetimer.c
-- ✅ **Optional (1 file):** safetimer_helpers.h (convenience API, v1.1+)
 
 > **💡 头文件包含关系：** `safetimer.h` 已经自动包含 `bsp.h`。在应用代码（main.c）中只需 `#include "safetimer.h"`，无需再单独引入 `bsp.h`。BSP 实现文件则需要 `#include "bsp.h"`。
 
@@ -267,12 +263,12 @@ int main(void) {
 
 ---
 
-### Simpler Alternative (Helper API, v1.1+)
+### Simpler Alternative: Convenience Functions
 
-For common immediate-start scenarios, use the optional helper API:
+For common immediate-start scenarios, use the convenience functions included in `safetimer.h`:
 
 ```c
-#include "safetimer_helpers.h"  /* Optional convenience layer */
+#include "safetimer.h"
 
 int main(void) {
     init_timer0();
@@ -292,9 +288,10 @@ int main(void) {
 }
 ```
 
-**When to Use Which API:**
-- 📦 **Core API** (`safetimer.h`): Cascaded timers, conditional start
-- ⚡ **Helper API** (`safetimer_helpers.h`): Immediate start (90% of use cases)
+**Available Convenience Functions:**
+- `safetimer_create_started()` - Create and start in one call
+- `safetimer_create_started_batch()` - Batch create multiple timers
+- `SAFETIMER_CREATE_STARTED_OR()` - Macro with error handling
 
 See [`examples/helpers_demo/`](../examples/helpers_demo/) for detailed comparison.
 

@@ -30,11 +30,10 @@ English | [简体中文](README_zh-CN.md)
 
 ### 3-Step Integration
 
-**1. Copy Files (4 required + 1 optional)**
+**1. Copy Files (4 required)**
 ```bash
 cp SafeTimer/include/{safetimer.h,safetimer_config.h,bsp.h} your_project/
 cp SafeTimer/src/safetimer.c your_project/
-cp SafeTimer/include/safetimer_helpers.h your_project/  # Optional
 ```
 
 **2. Implement BSP (3 functions)**
@@ -125,10 +124,9 @@ Start here to learn SafeTimer: **[Tutorial Index](tutorials/README.md)**
 ### Header Files
 
 Browse API directly in `include/` directory:
-- `safetimer.h` - Core API documentation
+- `safetimer.h` - Core API + convenience helpers
 - `safetimer_config.h` - Configuration options
 - `safetimer_coro.h` - Coroutine macros (v1.3.0+)
-- `safetimer_helpers.h` - Helper API (v1.1+)
 - `bsp.h` - BSP interface specification
 
 ---

@@ -20,6 +20,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Updated `examples/sc8f072/README.md` to point to tutorials instead of deleted user guide
 - Added direct links to API Reference and Architecture documents in all README files
 
+### 🔧 Refactoring
+
+**Header File Consolidation:**
+- Merged `safetimer_helpers.h` into `safetimer.h` (reduced header count from 7 to 6)
+- Convenience functions now included in main header:
+  - `safetimer_create_started()` - Create and start in one call
+  - `safetimer_create_started_batch()` - Batch create multiple timers
+  - `SAFETIMER_CREATE_STARTED_OR()` - Macro with error handling
+- Updated all documentation and examples to reflect this change
+- **Migration:** Users no longer need to include `safetimer_helpers.h` separately
+
+**New Configuration Option:**
+- Added `ENABLE_HELPER_API` in `safetimer_config.h` (default: 1)
+- Allows users to disable convenience functions for minimal API surface
+- Set `ENABLE_HELPER_API=0` to use only core APIs (create/start/delete/process)
+
 ## [1.3.1] - 2025-12-19
 
 ### 🐛 关键修复：消除协程累积定时误差

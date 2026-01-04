@@ -292,7 +292,7 @@ Repeatedly calling `safetimer_start()` in loop resets countdown, timer never exp
 
 **Fix:**
 - Documented: always check return value equals requested count
-- **Code Location:** `include/safetimer_helpers.h`
+- **Code Location:** `include/safetimer.h`
 
 ---
 

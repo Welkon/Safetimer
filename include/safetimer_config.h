@@ -77,6 +77,34 @@
 #define ENABLE_QUERY_API 0 /* Default: disabled for minimal footprint */
 #endif
 
+/* ========== Optional Helper APIs ========== */
+
+/**
+ * @brief Enable convenience helper functions
+ *
+ * 0 = Disabled (minimal footprint)
+ * 1 = Enabled (default, provides convenience wrappers)
+ *
+ * Affected APIs:
+ *   - safetimer_create_started()      (inline, ~0 bytes if unused)
+ *   - safetimer_create_started_batch() (inline, ~0 bytes if unused)
+ *   - SAFETIMER_CREATE_STARTED_OR()   (macro)
+ *
+ * Flash Impact:
+ *   These are inline functions/macros, only compiled if actually used.
+ *   Disabling removes declarations to prevent accidental usage.
+ *
+ * Use Cases:
+ *   Enabled (1):  Most applications benefit from simpler create+start API
+ *   Disabled (0): Strict minimal API, explicit control preferred
+ *
+ * @note Default: 1 (enabled) - convenience functions are commonly used
+ * @note Core APIs (create/start/delete/process) are always available
+ */
+#ifndef ENABLE_HELPER_API
+#define ENABLE_HELPER_API 1 /* Default: enabled for convenience */
+#endif
+
 /* ========== REPEAT Timer Behavior ========== */
 
 /**
@@ -308,6 +336,11 @@ typedef signed long int32_t;
 /* Validate ENABLE_QUERY_API */
 #if ENABLE_QUERY_API != 0 && ENABLE_QUERY_API != 1
 #error "ENABLE_QUERY_API must be 0 or 1"
+#endif
+
+/* Validate ENABLE_HELPER_API */
+#if ENABLE_HELPER_API != 0 && ENABLE_HELPER_API != 1
+#error "ENABLE_HELPER_API must be 0 or 1"
 #endif
 
 /* Validate SAFETIMER_ABA_PROTECTION */

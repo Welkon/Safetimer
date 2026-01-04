@@ -30,11 +30,10 @@
 
 ### 3 步集成
 
-**1. 复制文件（4 个必需 + 1 个可选）**
+**1. 复制文件（4 个必需）**
 ```bash
 cp SafeTimer/include/{safetimer.h,safetimer_config.h,bsp.h} your_project/
 cp SafeTimer/src/safetimer.c your_project/
-cp SafeTimer/include/safetimer_helpers.h your_project/  # 可选
 ```
 
 **2. 实现 BSP（3 个函数）**
@@ -125,10 +124,9 @@ safetimer_get_pool_usage(&used, &total);
 ### 头文件
 
 在 `include/` 目录中直接查看 API：
-- `safetimer.h` - 核心 API 文档
+- `safetimer.h` - 核心 API + 便捷函数
 - `safetimer_config.h` - 配置选项
 - `safetimer_coro.h` - 协程宏（v1.3.0+）
-- `safetimer_helpers.h` - 辅助 API（v1.1+）
 - `bsp.h` - BSP 接口规范
 
 ---
