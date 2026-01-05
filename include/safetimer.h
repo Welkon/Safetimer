@@ -14,7 +14,7 @@
 #define SAFETIMER_VERSION "1.2.6"
 #define SAFETIMER_VERSION_MAJOR 1
 #define SAFETIMER_VERSION_MINOR 2
-#define SAFETIMER_VERSION_PATCH 5
+#define SAFETIMER_VERSION_PATCH 6
 
 /* ========== Configuration ========== */
 #include "safetimer_config.h"

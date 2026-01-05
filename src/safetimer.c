@@ -310,9 +310,14 @@ safetimer_handle_t safetimer_create(uint32_t period_ms, timer_mode_t mode,
   }
 #endif
 
+#if !SAFETIMER_REPEAT_ONLY
   if (mode != TIMER_MODE_ONE_SHOT && mode != TIMER_MODE_REPEAT) {
     return SAFETIMER_INVALID_HANDLE; /* Invalid mode */
   }
+#else
+  /* In REPEAT_ONLY mode, mode parameter is ignored and forced to REPEAT */
+  (void)mode; /* Suppress unused parameter warning */
+#endif
 #endif
 
   /* Find free slot */
@@ -649,12 +654,10 @@ timer_error_t safetimer_advance_period(safetimer_handle_t handle,
         g_timer_pool.slots[slot_index].expire_time = new_expire;
       }
       /* else: ISR modified timer state, keep ISR's value */
-    }
-#if !SAFETIMER_REPEAT_ONLY
-    else { /* No catch-up needed, update directly */
+    } else {
+      /* No catch-up needed, update directly */
       g_timer_pool.slots[slot_index].expire_time = new_expire;
     }
-#endif
   } else {
     /* Timer not active: no previous phase to preserve, behave like set_period()
      */
@@ -1117,7 +1120,7 @@ STATIC void trigger_timer(uint8_t slot_index, bsp_tick_t current_tick,
      * calculation (fixes Stop-Start Overwrite Race + ABA variant).
      *
      * Double verification prevents extreme coincidence where ISR stop+start
-     * results in     * expire_time value (ABA variant). Checking both
+     * results in same expire_time value (ABA variant). Checking both
      * expire_time and active ensures we detect any ISR interference. */
     if (g_timer_pool.slots[slot_index].expire_time == old_expire &&
         SLOT_GET_ACTIVE(g_timer_pool.slots[slot_index]) == old_active) {

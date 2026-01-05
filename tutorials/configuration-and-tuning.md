@@ -322,7 +322,7 @@ Use [Best Practices](use-cases.md) to minimize fragmentation:
 #define MAX_TIMERS 4
 #define ENABLE_QUERY_API 0
 #define ENABLE_PARAM_CHECK 1  /* Debug builds only */
-#define BSP_TICK_TYPE_16BIT 0
+#define BSP_TICK_TYPE_16BIT 1
 ```
 
 ### ATtiny85 (512B RAM, 8KB Flash)
